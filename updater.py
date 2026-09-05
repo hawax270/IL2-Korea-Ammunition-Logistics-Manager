@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 
 
-GITHUB_OWNER = "hawax270-eng"
+GITHUB_OWNER = "hawax270"
 GITHUB_REPOSITORY = "IL2-Korea-Ammunition-Logistics-Manager"
 
 GITHUB_API_LATEST_RELEASE = (

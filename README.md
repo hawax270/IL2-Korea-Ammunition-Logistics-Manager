@@ -166,5 +166,5 @@ The application checks the latest public GitHub Release in the background after 
 Official update source:
 
 ```text
-github.com/hawax270-eng/IL2-Korea-Ammunition-Logistics-Manager/releases
+github.com/hawax270/IL2-Korea-Ammunition-Logistics-Manager/releases
 ```

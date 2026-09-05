@@ -166,5 +166,5 @@ Après le démarrage, l'application vérifie en arrière-plan la dernière Relea
 Source officielle :
 
 ```text
-github.com/hawax270-eng/IL2-Korea-Ammunition-Logistics-Manager/releases
+github.com/hawax270/IL2-Korea-Ammunition-Logistics-Manager/releases
 ```

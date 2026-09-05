@@ -190,7 +190,7 @@ def verifier_donnees_utilisateur_localappdata_v101():
 
 
 def verifier_updater_github_v102():
-    assert updater.GITHUB_OWNER == "hawax270-eng"
+    assert updater.GITHUB_OWNER == "hawax270"
     assert updater.GITHUB_REPOSITORY == "IL2-Korea-Ammunition-Logistics-Manager"
 
     assert updater.normaliser_version("v1.0.2") == (
@@ -216,7 +216,7 @@ def verifier_updater_github_v102():
             {
                 "name": "source.zip",
                 "browser_download_url": (
-                    "https://github.com/hawax270-eng/"
+                    "https://github.com/hawax270/"
                     "IL2-Korea-Ammunition-Logistics-Manager/"
                     "releases/download/v1.0.2/source.zip"
                 ),
@@ -225,7 +225,7 @@ def verifier_updater_github_v102():
             {
                 "name": "IL2_Korea_ALM_Setupv1.0.2.exe",
                 "browser_download_url": (
-                    "https://github.com/hawax270-eng/"
+                    "https://github.com/hawax270/"
                     "IL2-Korea-Ammunition-Logistics-Manager/"
                     "releases/download/v1.0.2/"
                     "IL2_Korea_ALM_Setupv1.0.2.exe"

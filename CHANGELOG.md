@@ -11,6 +11,7 @@
 - launches the Inno Setup installer, then closes the application;
 - no telemetry;
 - user career/configuration data remains in `%LOCALAPPDATA%`.
+- GitHub update endpoint updated to the current `hawax270` repository owner.
 
 ### Windows branding
 - added the official IL-2 Korea ALM icon to the application executable;
