@@ -1,6 +1,7 @@
 # Changelog
 
 ## v1.0.2
+- update images on loading screen
 
 ### GitHub updater
 - silent background check against the latest public GitHub Release at startup;
