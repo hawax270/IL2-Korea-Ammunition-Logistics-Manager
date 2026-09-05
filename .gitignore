@@ -1,0 +1,28 @@
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller / generated builds
+build/
+dist/
+
+# Inno Setup generated installers
+installer_output/
+
+# Runtime / personal user data
+config.json
+careers/
+logs/
+*.db
+
+# IDE / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
