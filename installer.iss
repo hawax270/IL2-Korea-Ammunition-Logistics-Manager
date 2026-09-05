@@ -37,6 +37,7 @@ RestartApplications=no
 ChangesAssociations=no
 AllowNoIcons=yes
 LicenseFile=LICENSE
+SetupIconFile=images\app_icon.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

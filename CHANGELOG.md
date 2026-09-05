@@ -12,6 +12,11 @@
 - no telemetry;
 - user career/configuration data remains in `%LOCALAPPDATA%`.
 
+### Windows branding
+- added the official IL-2 Korea ALM icon to the application executable;
+- the same icon is used by the Tk window/taskbar and the Inno Setup installer;
+- multi-resolution `.ico` asset included for Windows shortcuts and Explorer.
+
 ## v1.0.1
 
 ### Packaging preparation

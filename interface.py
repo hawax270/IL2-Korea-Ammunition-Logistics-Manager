@@ -11831,11 +11831,50 @@ def afficher_splash():
 # devient directement l'interface principale.
 # ============================================================
 
+# Identité Windows de l'application.
+# L'AppUserModelID aide Windows à associer correctement l'icône de
+# l'exécutable à la fenêtre et aux raccourcis dans la barre des tâches.
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+        "hawax270.IL2KoreaALM"
+    )
+except Exception:
+    pass
+
 fenetre = tk.Tk()
 
 fenetre.title(
     t("app.window_title")
 )
+
+# Icône de la fenêtre / barre des tâches.
+# Le .ico est également intégré directement dans l'exécutable par
+# PyInstaller (voir IL2_Korea_Ammunition_Logistics_Manager.spec).
+try:
+    fenetre.iconbitmap(
+        default=str(DOSSIER_IMAGES / "app_icon.ico")
+    )
+except Exception:
+    pass
+
+# iconphoto sert de complément pour Tk et conserve correctement
+# la transparence du logo. La référence est gardée sur la fenêtre pour
+# éviter que Tkinter ne libère l'image.
+try:
+    _icone_application_pil = Image.open(
+        DOSSIER_IMAGES / "app_icon.png"
+    ).convert("RGBA")
+    _icone_application_tk = ImageTk.PhotoImage(
+        _icone_application_pil,
+        master=fenetre
+    )
+    fenetre.iconphoto(
+        True,
+        _icone_application_tk
+    )
+    fenetre._icone_application_tk = _icone_application_tk
+except Exception:
+    pass
 
 # Une vraie fenêtre Tk classique possède naturellement un bouton
 # dans la barre des tâches Windows.
