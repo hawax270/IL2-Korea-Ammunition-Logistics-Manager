@@ -256,7 +256,11 @@ def verifier_updater_github_v102():
     assert "def traiter_resultats_mise_a_jour():" in source
     assert 'name="github-update-check"' in source
     assert 'name="github-update-download"' in source
-    assert "options.update.check" in source
+    assert "main.update.button" in source
+    assert "def action_bouton_mise_a_jour():" in source
+    assert "def actualiser_bouton_mise_a_jour():" in source
+    assert "info_mise_a_jour_disponible" in source
+    assert "options.update.check" not in source
     assert "1800" in source
     assert "manuelle=False" in source
 

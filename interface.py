@@ -13198,6 +13198,8 @@ def dialogue_message_custom(
 file_mise_a_jour = queue.Queue()
 verification_mise_a_jour_en_cours = False
 telechargement_mise_a_jour_en_cours = False
+info_mise_a_jour_disponible = None
+bouton_mise_a_jour = None
 
 _ui_telechargement_mise_a_jour = {
     "popup": None,
@@ -13215,6 +13217,60 @@ def _parent_mise_a_jour_valide(parent):
         pass
 
     return fenetre
+
+
+def actualiser_bouton_mise_a_jour():
+    """Met à jour l'apparence du bouton UPDATE de la barre basse."""
+    try:
+        if (
+            bouton_mise_a_jour is None
+            or not bouton_mise_a_jour.winfo_exists()
+        ):
+            return
+    except Exception:
+        return
+
+    disponible = isinstance(
+        info_mise_a_jour_disponible,
+        dict
+    )
+
+    if disponible:
+        bouton_mise_a_jour.configure(
+            bg=theme["rouge"],
+            fg=theme["blanc"],
+            activebackground=theme["rouge"],
+            activeforeground=theme["blanc"],
+            relief="solid",
+            borderwidth=1
+        )
+    else:
+        bouton_mise_a_jour.configure(
+            bg=theme["barre"],
+            fg=theme["blanc"],
+            activebackground=theme["panneau_alt"],
+            activeforeground=theme["blanc"],
+            relief="flat",
+            borderwidth=0
+        )
+
+
+def action_bouton_mise_a_jour():
+    """Ouvre l'update connue ou lance une vérification manuelle."""
+    if isinstance(
+        info_mise_a_jour_disponible,
+        dict
+    ):
+        afficher_dialogue_mise_a_jour(
+            info_mise_a_jour_disponible,
+            fenetre
+        )
+        return
+
+    demarrer_verification_mise_a_jour(
+        manuelle=True,
+        parent=fenetre
+    )
 
 
 def demarrer_verification_mise_a_jour(
@@ -13530,6 +13586,7 @@ def demarrer_telechargement_mise_a_jour(
 def traiter_resultats_mise_a_jour():
     global verification_mise_a_jour_en_cours
     global telechargement_mise_a_jour_en_cours
+    global info_mise_a_jour_disponible
 
     try:
         while True:
@@ -13541,26 +13598,36 @@ def traiter_resultats_mise_a_jour():
                 verification_mise_a_jour_en_cours = False
 
                 if info.get("status") == "available":
-                    afficher_dialogue_mise_a_jour(
-                        info,
-                        parent
-                    )
+                    info_mise_a_jour_disponible = info
+                    actualiser_bouton_mise_a_jour()
 
-                elif manuelle:
-                    dialogue_message_custom(
-                        t("update.check.up_to_date.title"),
-                        t(
-                            "update.check.up_to_date.body"
-                        ).format(
-                            current=VERSION_APPLICATION,
-                            latest=info.get(
-                                "latest_version",
-                                VERSION_APPLICATION
-                            )
-                        ),
-                        "info",
-                        _parent_mise_a_jour_valide(parent)
-                    )
+                    # La vérification automatique reste discrète :
+                    # le bouton UPDATE devient rouge et attend un clic.
+                    if manuelle:
+                        afficher_dialogue_mise_a_jour(
+                            info,
+                            parent
+                        )
+
+                else:
+                    info_mise_a_jour_disponible = None
+                    actualiser_bouton_mise_a_jour()
+
+                    if manuelle:
+                        dialogue_message_custom(
+                            t("update.check.up_to_date.title"),
+                            t(
+                                "update.check.up_to_date.body"
+                            ).format(
+                                current=VERSION_APPLICATION,
+                                latest=info.get(
+                                    "latest_version",
+                                    VERSION_APPLICATION
+                                )
+                            ),
+                            "info",
+                            _parent_mise_a_jour_valide(parent)
+                        )
 
             elif type_evenement == "verification_erreur":
                 _, manuelle, parent, erreur = evenement
@@ -25731,6 +25798,10 @@ def appliquer_theme(
         activebackground=theme["rouge"]
     )
 
+    # Le bouton UPDATE doit rester rouge lorsqu'une mise à jour
+    # est disponible, même après un changement de thème.
+    actualiser_bouton_mise_a_jour()
+
 
     actualiser_contours_fenetres()
 
@@ -28208,93 +28279,6 @@ def ouvrir_options():
         pady=(0, 14)
     )
 
-    # ========================================================
-    # MISES À JOUR
-    # ========================================================
-
-    separateur_mises_a_jour = tk.Frame(
-        contenu,
-        height=1,
-        bg=theme["separateur"]
-    )
-
-    separateur_mises_a_jour.pack(
-        fill="x",
-        padx=55,
-        pady=(22, 16)
-    )
-
-    tk.Label(
-        contenu,
-        text=t("options.update.title"),
-        font=POLICE_SECTION,
-        bg=theme["panneau"],
-        fg=theme["texte"]
-    ).pack(
-        pady=(0, 5)
-    )
-
-    tk.Label(
-        contenu,
-        text=t("options.update.description"),
-        font=POLICE_PETIT,
-        justify="center",
-        wraplength=600,
-        bg=theme["panneau"],
-        fg=theme["texte_faible"]
-    ).pack(
-        pady=(0, 12)
-    )
-
-    cadre_mises_a_jour = tk.Frame(
-        contenu,
-        bg=theme["panneau_alt"],
-        highlightbackground=theme["bordure"],
-        highlightthickness=1
-    )
-
-    cadre_mises_a_jour.pack(
-        fill="x",
-        padx=55
-    )
-
-    tk.Label(
-        cadre_mises_a_jour,
-        text=t(
-            "options.update.current"
-        ).format(
-            version=VERSION_APPLICATION
-        ),
-        font=(POLICE, 9, "bold"),
-        bg=theme["panneau_alt"],
-        fg=theme["texte"]
-    ).pack(
-        pady=(15, 10)
-    )
-
-    tk.Button(
-        cadre_mises_a_jour,
-        text=t("options.update.check"),
-        command=lambda:
-        demarrer_verification_mise_a_jour(
-            manuelle=True,
-            parent=fenetre_options
-        ),
-        font=(POLICE, 8, "bold"),
-        bg=theme["champ"],
-        fg=theme["texte"],
-        activebackground=theme["panneau"],
-        activeforeground=theme["texte"],
-        relief="solid",
-        borderwidth=1,
-        cursor="hand2"
-    ).pack(
-        fill="x",
-        padx=18,
-        pady=(0, 16),
-        ipady=7
-    )
-
     separateur = tk.Frame(
         contenu,
         height=1,
@@ -28667,6 +28651,30 @@ def ouvrir_options():
 # ============================================================
 # BOUTONS BARRE BASSE
 # ============================================================
+
+bouton_mise_a_jour = tk.Button(
+    barre_bas,
+    text=t("main.update.button"),
+    command=action_bouton_mise_a_jour,
+    font=(POLICE, 9, "bold"),
+    relief="flat",
+    borderwidth=0,
+    cursor="hand2"
+)
+
+bouton_mise_a_jour.place(
+    x=1225,
+    y=16,
+    width=120,
+    height=32
+)
+
+widgets_barre_bouton.append(
+    bouton_mise_a_jour
+)
+
+actualiser_bouton_mise_a_jour()
+
 
 bouton_options = tk.Button(
     barre_bas,

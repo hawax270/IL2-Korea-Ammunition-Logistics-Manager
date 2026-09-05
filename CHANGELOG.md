@@ -4,7 +4,9 @@
 
 ### GitHub updater
 - silent background check against the latest public GitHub Release at startup;
-- manual **Check for updates** action in Options;
+- dedicated **UPDATE** button in the main bottom bar;
+- the UPDATE button turns red when a newer GitHub Release is detected;
+- automatic startup checks stay silent until the user clicks the red UPDATE button;
 - custom update-available and download-progress windows;
 - downloads only the official version-matched Windows installer from this repository;
 - validates the downloaded file as a Windows executable before launching it;
