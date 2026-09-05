@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Adaptive multi-monitor interface
+- all application windows now fit automatically inside the usable area of the monitor they are displayed on;
+- the taskbar/work area is taken into account on Windows;
+- the main 1600×900 interface is proportionally reduced on smaller displays instead of being cut off;
+- custom dialogs and large logistics windows are resized with their controls and text;
+- windows automatically readapt when moved between monitors with different resolutions;
+- splash, career-link, loading and preset popups also use screen-safe positioning.
+
 ## v1.1.0
 - final version
 

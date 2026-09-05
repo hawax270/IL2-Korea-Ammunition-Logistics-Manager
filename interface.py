@@ -958,21 +958,12 @@ def selectionner_carriere_avant_demarrage():
         False
     )
 
-    largeur_ecran = liaison.winfo_screenwidth()
-    hauteur_ecran = liaison.winfo_screenheight()
-
-    x = (
-        largeur_ecran
-        - largeur
-    ) // 2
-
-    y = (
-        hauteur_ecran
-        - hauteur
-    ) // 2
-
-    liaison.geometry(
-        f"{largeur}x{hauteur}+{x}+{y}"
+    adapter_fenetre_simple_ecran(
+        liaison,
+        largeur,
+        hauteur,
+        parent=fenetre,
+        adapter_contenu=False
     )
 
     liaison.configure(
@@ -1589,6 +1580,19 @@ def selectionner_carriere_avant_demarrage():
         )
 
 
+    # Toute la liaison est désormais construite : applique le même facteur
+    # aux contrôles si le moniteur courant est plus petit que 820x560.
+    liaison.after_idle(
+        lambda:
+        adapter_fenetre_simple_ecran(
+            liaison,
+            largeur,
+            hauteur,
+            parent=fenetre,
+            adapter_contenu=True
+        )
+    )
+
     fenetre.wait_window(liaison)
 
     return resultat[
@@ -1651,6 +1655,578 @@ def facteur_taille_fenetres():
     )[
         "fenetre"
     ]
+
+
+# ============================================================
+# ADAPTATION AUTOMATIQUE AUX ECRANS / MULTI-MONITEURS
+# ============================================================
+#
+# L'interface historique a été dessinée sur une base 1600x900 et plusieurs
+# fenêtres secondaires possèdent elles aussi une taille de référence fixe.
+# Sur un écran plus petit, réduire uniquement la fenêtre coupe les contrôles.
+# Le système ci-dessous :
+#   - récupère la zone de travail REELLE du moniteur courant (barre des tâches
+#     exclue sous Windows) ;
+#   - réduit la géométrie de la fenêtre si nécessaire ;
+#   - réduit dans la même proportion les widgets positionnés en pixels ;
+#   - réduit les polices avec la même correction ;
+#   - réapplique automatiquement le bon facteur lorsqu'une fenêtre est déplacée
+#     vers un autre moniteur.
+#
+# Le facteur automatique ne sert qu'à REDUIRE. Sur un grand écran, les profils
+# COMPACT / STANDARD / GRAND continuent donc de fonctionner normalement.
+
+MARGE_ECRAN_ADAPTATIVE = 14
+FACTEUR_ECRAN_MINIMUM = 0.40
+
+
+def _zone_travail_moniteur(fenetre_cible=None, parent=None, point_ecran=None):
+    """Retourne (gauche, haut, largeur, hauteur) du moniteur pertinent.
+
+    ``point_ecran`` permet de choisir explicitement le moniteur contenant un
+    point du bureau virtuel. C'est utile au démarrage, lorsque la fenêtre
+    principale est volontairement cachée hors écran.
+    """
+    reference = fenetre_cible
+
+    try:
+        if (
+            reference is None
+            or not reference.winfo_exists()
+            or reference.winfo_width() <= 5
+            or reference.winfo_height() <= 5
+        ):
+            reference = parent
+    except Exception:
+        reference = parent
+
+    try:
+        if reference is None:
+            reference = fenetre
+    except Exception:
+        pass
+
+    # Windows : MonitorFromPoint + rcWork permet de tenir compte de la barre
+    # des tâches et du moniteur réellement utilisé dans une configuration
+    # multi-écrans.
+    if os.name == "nt":
+        try:
+            class POINT(ctypes.Structure):
+                _fields_ = [
+                    ("x", ctypes.c_long),
+                    ("y", ctypes.c_long),
+                ]
+
+            class RECT(ctypes.Structure):
+                _fields_ = [
+                    ("left", ctypes.c_long),
+                    ("top", ctypes.c_long),
+                    ("right", ctypes.c_long),
+                    ("bottom", ctypes.c_long),
+                ]
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", ctypes.c_ulong),
+                    ("rcMonitor", RECT),
+                    ("rcWork", RECT),
+                    ("dwFlags", ctypes.c_ulong),
+                ]
+
+            if point_ecran is not None:
+                cx = int(point_ecran[0])
+                cy = int(point_ecran[1])
+            elif reference is not None:
+                reference.update_idletasks()
+                cx = int(reference.winfo_rootx() + max(1, reference.winfo_width()) / 2)
+                cy = int(reference.winfo_rooty() + max(1, reference.winfo_height()) / 2)
+            else:
+                point_curseur = POINT()
+                ctypes.windll.user32.GetCursorPos(ctypes.byref(point_curseur))
+                cx = int(point_curseur.x)
+                cy = int(point_curseur.y)
+
+            point = POINT(cx, cy)
+            MONITOR_DEFAULTTONEAREST = 2
+
+            monitor_from_point = ctypes.windll.user32.MonitorFromPoint
+            monitor_from_point.restype = ctypes.c_void_p
+
+            moniteur = monitor_from_point(
+                point,
+                MONITOR_DEFAULTTONEAREST
+            )
+
+            infos = MONITORINFO()
+            infos.cbSize = ctypes.sizeof(MONITORINFO)
+
+            if moniteur and ctypes.windll.user32.GetMonitorInfoW(
+                moniteur,
+                ctypes.byref(infos)
+            ):
+                rect = infos.rcWork
+                largeur = max(1, int(rect.right - rect.left))
+                hauteur = max(1, int(rect.bottom - rect.top))
+                return (
+                    int(rect.left),
+                    int(rect.top),
+                    largeur,
+                    hauteur,
+                )
+        except Exception:
+            pass
+
+    # Fallback portable : écran Tk principal.
+    try:
+        largeur = max(1, int(reference.winfo_screenwidth()))
+        hauteur = max(1, int(reference.winfo_screenheight()))
+    except Exception:
+        largeur = 1600
+        hauteur = 900
+
+    return (0, 0, largeur, hauteur)
+
+
+def _facteur_pour_zone_travail(
+    largeur_reference,
+    hauteur_reference,
+    zone_travail,
+    marge=MARGE_ECRAN_ADAPTATIVE,
+):
+    """Facteur <= 1 permettant de faire tenir la fenêtre dans la zone utile."""
+    _, _, largeur_zone, hauteur_zone = zone_travail
+
+    largeur_disponible = max(240, largeur_zone - 2 * int(marge))
+    hauteur_disponible = max(180, hauteur_zone - 2 * int(marge))
+
+    largeur_reference = max(1, float(largeur_reference))
+    hauteur_reference = max(1, float(hauteur_reference))
+
+    facteur = min(
+        1.0,
+        largeur_disponible / largeur_reference,
+        hauteur_disponible / hauteur_reference,
+    )
+
+    return max(
+        FACTEUR_ECRAN_MINIMUM,
+        min(1.0, float(facteur))
+    )
+
+
+def _centrer_dans_zone_travail(
+    fenetre_cible,
+    largeur,
+    hauteur,
+    parent=None,
+    zone_travail=None,
+):
+    """Centre une fenêtre dans son moniteur et garantit qu'elle reste visible."""
+    if zone_travail is None:
+        zone_travail = _zone_travail_moniteur(
+            fenetre_cible,
+            parent=parent,
+        )
+
+    gauche, haut, largeur_zone, hauteur_zone = zone_travail
+
+    largeur = max(1, min(int(largeur), largeur_zone))
+    hauteur = max(1, min(int(hauteur), hauteur_zone))
+
+    x = gauche + max(0, (largeur_zone - largeur) // 2)
+    y = haut + max(0, (hauteur_zone - hauteur) // 2)
+
+    fenetre_cible.geometry(
+        f"{largeur}x{hauteur}+{x}+{y}"
+    )
+
+    return largeur, hauteur
+
+
+def _valeur_pixel_tk(valeur):
+    try:
+        texte = str(valeur).strip()
+        if not texte:
+            return None
+        return int(round(float(texte)))
+    except Exception:
+        return None
+
+
+def _adapter_canvas_items_ecran(canvas, facteur):
+    """Réduit les coordonnées des éléments Canvas statiques sans cumul."""
+    try:
+        bases = getattr(canvas, "_coordonnees_canvas_base_ecran", None)
+        if bases is None:
+            bases = {}
+            canvas._coordonnees_canvas_base_ecran = bases
+
+        for item in canvas.find_all():
+            if item not in bases:
+                try:
+                    bases[item] = tuple(canvas.coords(item))
+                except Exception:
+                    continue
+
+            coords_base = bases.get(item, ())
+            if coords_base:
+                try:
+                    canvas.coords(
+                        item,
+                        *[
+                            float(coord) * facteur
+                            for coord in coords_base
+                        ]
+                    )
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _adapter_mise_en_page_widget_ecran(widget, facteur):
+    """
+    Applique un facteur écran depuis des valeurs de base mémorisées.
+
+    Cette fonction est déterministe : repasser de 0.75 à 1.0 restaure les
+    dimensions initiales au lieu de multiplier les redimensionnements.
+    """
+    facteur = max(
+        FACTEUR_ECRAN_MINIMUM,
+        min(1.0, float(facteur))
+    )
+
+    def parcourir(cible):
+        # Widgets gérés par place : x/y/width/height sont des pixels et peuvent
+        # donc être mis à l'échelle sans modifier la logique de l'interface.
+        try:
+            infos_place = cible.place_info()
+        except Exception:
+            infos_place = {}
+
+        if infos_place:
+            base_place = getattr(
+                cible,
+                "_place_base_ecran",
+                None
+            )
+
+            if base_place is None:
+                base_place = {}
+                for cle in ("x", "y", "width", "height"):
+                    valeur = _valeur_pixel_tk(infos_place.get(cle, ""))
+                    if valeur is not None:
+                        base_place[cle] = valeur
+                cible._place_base_ecran = base_place
+
+            nouvelles_valeurs = {
+                cle: int(round(valeur * facteur))
+                for cle, valeur in base_place.items()
+            }
+
+            if nouvelles_valeurs:
+                try:
+                    cible.place_configure(**nouvelles_valeurs)
+                except Exception:
+                    pass
+
+        # Frames/Canvas packés avec une taille pixel fixe (headers, panneaux,
+        # etc.). Les widgets texte utilisent généralement des unités de
+        # caractères : on ne touche donc pas à leur width/height ici.
+        if isinstance(cible, (tk.Frame, tk.Canvas)) and not infos_place:
+            base_dimension = getattr(
+                cible,
+                "_dimension_base_ecran",
+                None
+            )
+
+            if base_dimension is None:
+                try:
+                    largeur_base = _valeur_pixel_tk(cible.cget("width"))
+                    hauteur_base = _valeur_pixel_tk(cible.cget("height"))
+                    base_dimension = (
+                        largeur_base,
+                        hauteur_base,
+                    )
+                    cible._dimension_base_ecran = base_dimension
+                except Exception:
+                    base_dimension = None
+
+            if base_dimension:
+                largeur_base, hauteur_base = base_dimension
+                options = {}
+                if largeur_base and largeur_base > 1:
+                    options["width"] = max(1, int(round(largeur_base * facteur)))
+                if hauteur_base and hauteur_base > 1:
+                    options["height"] = max(1, int(round(hauteur_base * facteur)))
+                if options:
+                    try:
+                        cible.configure(**options)
+                    except Exception:
+                        pass
+
+        if isinstance(cible, tk.Canvas):
+            _adapter_canvas_items_ecran(
+                cible,
+                facteur
+            )
+
+        try:
+            enfants = cible.winfo_children()
+        except Exception:
+            enfants = ()
+
+        for enfant in enfants:
+            parcourir(enfant)
+
+    try:
+        for enfant in widget.winfo_children():
+            parcourir(enfant)
+    except Exception:
+        pass
+
+
+def _reinitialiser_references_layout_ecran(widget):
+    """Force une nouvelle capture des dimensions de base au prochain passage."""
+    attributs = (
+        "_place_base_ecran",
+        "_dimension_base_ecran",
+        "_coordonnees_canvas_base_ecran",
+    )
+
+    def parcourir(cible):
+        for attribut in attributs:
+            try:
+                delattr(cible, attribut)
+            except Exception:
+                pass
+
+        try:
+            enfants = cible.winfo_children()
+        except Exception:
+            enfants = ()
+
+        for enfant in enfants:
+            parcourir(enfant)
+
+    parcourir(widget)
+
+
+def _installer_suivi_moniteur(fenetre_cible, callback):
+    """Réajuste la fenêtre lorsqu'elle est déplacée vers un autre écran."""
+    if getattr(
+        fenetre_cible,
+        "_suivi_moniteur_adaptatif",
+        False
+    ):
+        return
+
+    fenetre_cible._suivi_moniteur_adaptatif = True
+    fenetre_cible._zone_moniteur_adaptative = _zone_travail_moniteur(
+        fenetre_cible,
+        parent=getattr(fenetre_cible, "master", None)
+    )
+    fenetre_cible._after_adaptation_moniteur = None
+
+    def verifier_changement(event=None):
+        if event is not None and event.widget is not fenetre_cible:
+            return
+
+        if getattr(
+            fenetre_cible,
+            "_adaptation_ecran_en_cours",
+            False
+        ):
+            return
+
+        try:
+            if not fenetre_cible.winfo_exists():
+                return
+        except Exception:
+            return
+
+        nouvelle_zone = _zone_travail_moniteur(
+            fenetre_cible,
+            parent=getattr(fenetre_cible, "master", None)
+        )
+
+        if nouvelle_zone == getattr(
+            fenetre_cible,
+            "_zone_moniteur_adaptative",
+            None
+        ):
+            return
+
+        fenetre_cible._zone_moniteur_adaptative = nouvelle_zone
+
+        try:
+            ancien_after = fenetre_cible._after_adaptation_moniteur
+            if ancien_after:
+                fenetre_cible.after_cancel(ancien_after)
+        except Exception:
+            pass
+
+        try:
+            fenetre_cible._after_adaptation_moniteur = fenetre_cible.after(
+                90,
+                callback
+            )
+        except Exception:
+            pass
+
+    fenetre_cible.bind(
+        "<Configure>",
+        verifier_changement,
+        add="+"
+    )
+
+
+def adapter_fenetre_simple_ecran(
+    fenetre_cible,
+    largeur_base,
+    hauteur_base,
+    parent=None,
+    adapter_contenu=True,
+):
+    """Adaptation générique pour les fenêtres qui n'utilisent pas le chrome."""
+    try:
+        if not fenetre_cible.winfo_exists():
+            return 1.0
+
+        fenetre_cible._adaptation_ecran_en_cours = True
+        zone = _zone_travail_moniteur(
+            fenetre_cible,
+            parent=parent
+        )
+        facteur = _facteur_pour_zone_travail(
+            largeur_base,
+            hauteur_base,
+            zone
+        )
+
+        largeur = max(1, int(round(largeur_base * facteur)))
+        hauteur = max(1, int(round(hauteur_base * facteur)))
+
+        fenetre_cible._facteur_auto_ecran = facteur
+        fenetre_cible._taille_base_ecran = (
+            int(largeur_base),
+            int(hauteur_base),
+        )
+
+        if adapter_contenu:
+            _adapter_mise_en_page_widget_ecran(
+                fenetre_cible,
+                facteur
+            )
+            try:
+                _appliquer_taille_police_widget(
+                    fenetre_cible,
+                    facteur_taille_police() * facteur
+                )
+            except Exception:
+                pass
+
+        _centrer_dans_zone_travail(
+            fenetre_cible,
+            largeur,
+            hauteur,
+            parent=parent,
+            zone_travail=zone,
+        )
+
+        fenetre_cible._zone_moniteur_adaptative = zone
+
+    except Exception:
+        facteur = 1.0
+    finally:
+        try:
+            fenetre_cible._adaptation_ecran_en_cours = False
+        except Exception:
+            pass
+
+    _installer_suivi_moniteur(
+        fenetre_cible,
+        lambda f=fenetre_cible, w=largeur_base, h=hauteur_base, p=parent:
+        adapter_fenetre_simple_ecran(
+            f,
+            w,
+            h,
+            parent=p,
+            adapter_contenu=adapter_contenu,
+        )
+    )
+
+    return facteur
+
+
+def adapter_fenetre_principale_ecran(adapter_contenu=True):
+    """Fait tenir l'interface 1600x900 sur le moniteur où elle se trouve."""
+    try:
+        if not fenetre.winfo_exists():
+            return 1.0
+
+        fenetre._adaptation_ecran_en_cours = True
+        zone = _zone_travail_moniteur(
+            fenetre,
+            parent=None
+        )
+        facteur = _facteur_pour_zone_travail(
+            LARGEUR_FENETRE,
+            HAUTEUR_FENETRE,
+            zone
+        )
+
+        largeur = max(
+            320,
+            int(round(LARGEUR_FENETRE * facteur))
+        )
+        hauteur = max(
+            240,
+            int(round(HAUTEUR_FENETRE * facteur))
+        )
+
+        fenetre._facteur_auto_ecran = facteur
+        fenetre._taille_base_ecran = (
+            LARGEUR_FENETRE,
+            HAUTEUR_FENETRE,
+        )
+
+        if adapter_contenu:
+            _adapter_mise_en_page_widget_ecran(
+                fenetre,
+                facteur
+            )
+            _appliquer_taille_police_widget(
+                fenetre,
+                facteur_taille_police() * facteur
+            )
+
+        _centrer_dans_zone_travail(
+            fenetre,
+            largeur,
+            hauteur,
+            parent=None,
+            zone_travail=zone,
+        )
+        fenetre._zone_moniteur_adaptative = zone
+
+    except Exception:
+        facteur = 1.0
+    finally:
+        try:
+            fenetre._adaptation_ecran_en_cours = False
+        except Exception:
+            pass
+
+    _installer_suivi_moniteur(
+        fenetre,
+        lambda:
+        adapter_fenetre_principale_ecran(
+            adapter_contenu=True
+        )
+    )
+
+    return facteur
 
 
 def _extraire_font_base_widget(
@@ -2372,6 +2948,17 @@ def adapter_boxes_fenetre_principale():
 def appliquer_taille_police_globale():
     facteur = facteur_taille_police()
 
+    # Restaure d'abord le layout logique 1600x900. Ainsi un changement de
+    # langue ou de profil ne recalcule jamais les boîtes depuis une géométrie
+    # déjà réduite par un petit écran.
+    try:
+        _adapter_mise_en_page_widget_ecran(
+            fenetre,
+            1.0
+        )
+    except Exception:
+        pass
+
     _appliquer_taille_police_widget(
         fenetre,
         facteur
@@ -2386,6 +2973,19 @@ def appliquer_taille_police_globale():
     # suivent maintenant la taille réelle de leur texte.
     adapter_boxes_fenetre_principale()
 
+    # Les éventuelles dimensions recalculées par adapter_boxes deviennent la
+    # nouvelle référence logique, puis le facteur écran est réappliqué.
+    _reinitialiser_references_layout_ecran(
+        fenetre
+    )
+
+    try:
+        fenetre.after_idle(
+            adapter_fenetre_principale_ecran
+        )
+    except Exception:
+        pass
+
     # Le changement de police ne relance plus l'auto-dimensionnement
     # global des fenêtres existantes. Cela évite qu'un changement de texte
     # modifie indirectement et cumulativement leur géométrie.
@@ -2395,19 +2995,7 @@ def appliquer_taille_police_globale():
 
 
 def appliquer_taille_fenetres_ouvertes():
-    """
-    Redimensionne les Toplevel ouverts de manière DÉTERMINISTE.
-
-    IMPORTANT :
-    - aucune mesure de contenu n'est effectuée ici ;
-    - aucune taille actuelle n'est utilisée comme référence ;
-    - chaque fenêtre repart uniquement de _taille_base_custom.
-
-    Cela empêche totalement l'effet cumulatif lorsque l'utilisateur clique
-    plusieurs fois sur COMPACT / STANDARD / GRAND.
-    """
-    facteur = facteur_taille_fenetres()
-
+    """Réapplique le profil d'affichage ET l'adaptation au moniteur courant."""
     try:
         for enfant in fenetre.winfo_children():
             if not isinstance(
@@ -2416,74 +3004,21 @@ def appliquer_taille_fenetres_ouvertes():
             ):
                 continue
 
-            base = getattr(
+            if getattr(
                 enfant,
                 "_taille_base_custom",
                 None
-            )
-
-            if not base:
-                continue
-
-            largeur_base, hauteur_base = base
-
-            largeur_cible = max(
-                420,
-                int(
-                    round(
-                        largeur_base
-                        * facteur
-                    )
+            ):
+                ajuster_fenetre_custom_au_contenu(
+                    enfant
                 )
-            )
 
-            hauteur_cible = max(
-                260,
-                int(
-                    round(
-                        hauteur_base
-                        * facteur
-                    )
-                )
-            )
+    except Exception:
+        pass
 
-            largeur_ecran = max(
-                640,
-                enfant.winfo_screenwidth()
-            )
-
-            hauteur_ecran = max(
-                480,
-                enfant.winfo_screenheight()
-            )
-
-            largeur_cible = min(
-                largeur_cible,
-                int(
-                    largeur_ecran
-                    * 0.96
-                )
-            )
-
-            hauteur_cible = min(
-                hauteur_cible,
-                int(
-                    hauteur_ecran
-                    * 0.94
-                )
-            )
-
-            enfant._taille_min_custom = (
-                largeur_cible,
-                hauteur_cible
-            )
-
-            centrer_fenetre_secondaire(
-                enfant,
-                largeur_cible,
-                hauteur_cible
-            )
-
+    # La fenêtre principale utilise elle aussi le même mécanisme automatique.
+    try:
+        adapter_fenetre_principale_ecran()
     except Exception:
         pass
 
@@ -11645,14 +12180,34 @@ def afficher_splash():
     splash = tk.Toplevel(fenetre)
     splash.overrideredirect(True)
 
-    largeur_ecran = splash.winfo_screenwidth()
-    hauteur_ecran = splash.winfo_screenheight()
+    # La fenêtre principale est encore cachée hors écran à ce stade.
+    # On utilise donc le moniteur sous le curseur comme référence pour
+    # garantir que le splash apparaît réellement au centre de l'écran utilisé.
+    try:
+        point_splash = (
+            int(fenetre.winfo_pointerx()),
+            int(fenetre.winfo_pointery())
+        )
+    except Exception:
+        point_splash = None
 
-    position_x = (largeur_ecran - LARGEUR_SPLASH) // 2
-    position_y = (hauteur_ecran - HAUTEUR_SPLASH) // 2
+    zone_splash = _zone_travail_moniteur(
+        point_ecran=point_splash
+    )
+    facteur_splash = _facteur_pour_zone_travail(
+        LARGEUR_SPLASH,
+        HAUTEUR_SPLASH,
+        zone_splash
+    )
+    largeur_splash = max(320, int(round(LARGEUR_SPLASH * facteur_splash)))
+    hauteur_splash = max(220, int(round(HAUTEUR_SPLASH * facteur_splash)))
 
-    splash.geometry(
-        f"{LARGEUR_SPLASH}x{HAUTEUR_SPLASH}+{position_x}+{position_y}"
+    _centrer_dans_zone_travail(
+        splash,
+        largeur_splash,
+        hauteur_splash,
+        parent=fenetre,
+        zone_travail=zone_splash
     )
 
     splash.attributes("-topmost", True)
@@ -11665,8 +12220,8 @@ def afficher_splash():
 
     canvas = tk.Canvas(
         splash,
-        width=LARGEUR_SPLASH,
-        height=HAUTEUR_SPLASH,
+        width=largeur_splash,
+        height=hauteur_splash,
         highlightthickness=0,
         borderwidth=0,
         bg="#111111"
@@ -11678,8 +12233,8 @@ def afficher_splash():
     canvas.create_rectangle(
         0,
         0,
-        LARGEUR_SPLASH - 1,
-        HAUTEUR_SPLASH - 1,
+        largeur_splash - 1,
+        hauteur_splash - 1,
         outline=theme["contour_fenetre"],
         width=1
     )
@@ -11691,8 +12246,8 @@ def afficher_splash():
 
         fond = adapter_image_cover(
             fond,
-            LARGEUR_SPLASH,
-            HAUTEUR_SPLASH
+            largeur_splash,
+            hauteur_splash
         )
 
         reference_fond["image"] = ImageTk.PhotoImage(fond, master=splash)
@@ -11715,36 +12270,36 @@ def afficher_splash():
     except Exception:
         image_logo = None
 
-    centre_x = LARGEUR_SPLASH // 2
-    centre_y = HAUTEUR_SPLASH // 2
+    centre_x = largeur_splash // 2
+    centre_y = hauteur_splash // 2
 
     item_logo = canvas.create_image(
         centre_x,
-        centre_y - 45
+        centre_y - int(round(45 * facteur_splash))
     )
 
     canvas.create_text(
         centre_x,
-        centre_y + 45,
+        centre_y + int(round(45 * facteur_splash)),
         text=t("startup.loading"),
-        font=(POLICE, 14, "bold"),
+        font=(POLICE, max(9, int(round(14 * facteur_splash))), "bold"),
         fill="#ffffff"
     )
 
     item_points = canvas.create_text(
         centre_x,
-        centre_y + 72,
+        centre_y + int(round(72 * facteur_splash)),
         text="",
-        font=(POLICE, 13, "bold"),
+        font=(POLICE, max(8, int(round(13 * facteur_splash))), "bold"),
         fill="#ffffff"
     )
 
     canvas.create_text(
         18,
-        HAUTEUR_SPLASH - 16,
+        hauteur_splash - 16,
         text=VERSION_APPLICATION,
         anchor="sw",
-        font=(POLICE, 8),
+        font=(POLICE, max(7, int(round(8 * facteur_splash)))),
         fill="#d0cec8"
     )
 
@@ -11752,8 +12307,8 @@ def afficher_splash():
     canvas.create_rectangle(
         0,
         0,
-        LARGEUR_SPLASH - 1,
-        HAUTEUR_SPLASH - 1,
+        largeur_splash - 1,
+        hauteur_splash - 1,
         outline=theme["contour_fenetre"],
         width=1
     )
@@ -11783,7 +12338,7 @@ def afficher_splash():
             )
 
             taille = round(
-                TAILLE_LOGO_SPLASH * facteur
+                TAILLE_LOGO_SPLASH * facteur_splash * facteur
             )
 
             logo = image_logo.copy()
@@ -12064,30 +12619,18 @@ def afficher_chargement_carriere(
 
     popup.update_idletasks()
 
-    largeur_ecran = popup.winfo_screenwidth()
-    hauteur_ecran = popup.winfo_screenheight()
-
-    x = max(
-        0,
-        (
-            largeur_ecran
-            - largeur
-        ) // 2
+    # 1. adaptation et position avant affichage. Sur les écrans usuels le
+    # facteur reste 1.0 ; sur un très petit écran la fenêtre et ses contrôles
+    # sont réduits ensemble.
+    adapter_fenetre_simple_ecran(
+        popup,
+        largeur,
+        hauteur,
+        parent=fenetre,
+        adapter_contenu=True
     )
+    geometrie_centree = popup.geometry()
 
-    y = max(
-        0,
-        (
-            hauteur_ecran
-            - hauteur
-        ) // 2
-    )
-
-    geometrie_centree = (
-        f"{largeur}x{hauteur}+{x}+{y}"
-    )
-
-    # 1. position avant affichage
     popup.geometry(
         geometrie_centree
     )
@@ -12324,14 +12867,10 @@ fenetre.deiconify()
 fenetre.overrideredirect(True)
 fenetre.resizable(False, False)
 
-largeur_ecran = fenetre.winfo_screenwidth()
-hauteur_ecran = fenetre.winfo_screenheight()
-
-position_x = (largeur_ecran - LARGEUR_FENETRE) // 2
-position_y = (hauteur_ecran - HAUTEUR_FENETRE) // 2
-
-fenetre.geometry(
-    f"{LARGEUR_FENETRE}x{HAUTEUR_FENETRE}+{position_x}+{position_y}"
+# La fenêtre principale conserve sa base logique 1600x900, mais sa taille
+# physique est automatiquement réduite si le moniteur courant est plus petit.
+adapter_fenetre_principale_ecran(
+    adapter_contenu=False
 )
 
 
@@ -12617,18 +13156,24 @@ def actualiser_contours_fenetres():
 # ============================================================
 
 def centrer_fenetre_secondaire(fenetre_secondaire, largeur, hauteur):
-    fenetre.update_idletasks()
+    """Centre la fenêtre sur le moniteur où se trouve son parent."""
+    parent = getattr(
+        fenetre_secondaire,
+        "master",
+        fenetre
+    )
 
-    parent_x = fenetre.winfo_x()
-    parent_y = fenetre.winfo_y()
-    parent_l = fenetre.winfo_width()
-    parent_h = fenetre.winfo_height()
+    zone = _zone_travail_moniteur(
+        fenetre_secondaire,
+        parent=parent
+    )
 
-    x = parent_x + max(0, (parent_l - largeur) // 2)
-    y = parent_y + max(0, (parent_h - hauteur) // 2)
-
-    fenetre_secondaire.geometry(
-        f"{largeur}x{hauteur}+{x}+{y}"
+    return _centrer_dans_zone_travail(
+        fenetre_secondaire,
+        largeur,
+        hauteur,
+        parent=parent,
+        zone_travail=zone,
     )
 
 
@@ -12705,19 +13250,16 @@ def ajuster_fenetre_custom_au_contenu(
     marge_y=24
 ):
     """
-    Ajuste une fenêtre custom depuis deux références stables :
+    Ajuste une fenêtre custom au profil choisi puis au moniteur courant.
 
-    1. sa taille de base STANDARD d'origine ;
-    2. la taille réellement nécessaire à son contenu.
-
-    La taille actuelle de la fenêtre n'entre JAMAIS dans le calcul.
-    Ainsi, changer GRAND -> COMPACT -> GRAND ne provoque aucune
-    accumulation de dimensions.
+    La taille de contenu de référence est capturée avant toute réduction écran,
+    ce qui rend les allers-retours entre moniteurs totalement déterministes.
     """
     try:
         if not fenetre_secondaire.winfo_exists():
             return
 
+        fenetre_secondaire._adaptation_ecran_en_cours = True
         fenetre_secondaire.update_idletasks()
 
         base = getattr(
@@ -12734,86 +13276,103 @@ def ajuster_fenetre_custom_au_contenu(
         )
 
         largeur_base, hauteur_base = base
-
-        facteur = facteur_taille_fenetres()
+        facteur_profil = facteur_taille_fenetres()
 
         largeur_profil = max(
             420,
-            int(
-                round(
-                    largeur_base
-                    * facteur
-                )
-            )
+            int(round(largeur_base * facteur_profil))
         )
-
         hauteur_profil = max(
             260,
-            int(
-                round(
-                    hauteur_base
-                    * facteur
-                )
-            )
+            int(round(hauteur_base * facteur_profil))
         )
 
-        largeur_contenu, hauteur_contenu = (
-            calculer_taille_contenu_custom(
+        contenu_base = getattr(
+            fenetre_secondaire,
+            "_taille_contenu_base_custom",
+            None
+        )
+
+        if contenu_base is None:
+            contenu_base = calculer_taille_contenu_custom(
                 fenetre_secondaire,
                 marge_x=marge_x,
                 marge_y=marge_y
             )
+            fenetre_secondaire._taille_contenu_base_custom = contenu_base
+
+        largeur_contenu, hauteur_contenu = contenu_base
+
+        largeur_reference = max(
+            largeur_profil,
+            int(round(largeur_contenu * facteur_profil))
+        )
+        hauteur_reference = max(
+            hauteur_profil,
+            int(round(hauteur_contenu * facteur_profil))
+        )
+
+        parent = getattr(
+            fenetre_secondaire,
+            "master",
+            fenetre
+        )
+        zone = _zone_travail_moniteur(
+            fenetre_secondaire,
+            parent=parent
+        )
+
+        facteur_ecran = _facteur_pour_zone_travail(
+            largeur_reference,
+            hauteur_reference,
+            zone
         )
 
         largeur_cible = max(
-            largeur_profil,
-            largeur_contenu
+            240,
+            int(round(largeur_reference * facteur_ecran))
         )
-
         hauteur_cible = max(
-            hauteur_profil,
-            hauteur_contenu
+            180,
+            int(round(hauteur_reference * facteur_ecran))
         )
 
-        largeur_ecran = max(
-            640,
-            fenetre_secondaire.winfo_screenwidth()
-        )
-
-        hauteur_ecran = max(
-            480,
-            fenetre_secondaire.winfo_screenheight()
-        )
-
-        largeur_cible = min(
-            largeur_cible,
-            int(
-                largeur_ecran
-                * 0.96
-            )
-        )
-
-        hauteur_cible = min(
-            hauteur_cible,
-            int(
-                hauteur_ecran
-                * 0.94
-            )
-        )
-
+        fenetre_secondaire._facteur_auto_ecran = facteur_ecran
         fenetre_secondaire._taille_min_custom = (
-            largeur_profil,
-            hauteur_profil
-        )
-
-        centrer_fenetre_secondaire(
-            fenetre_secondaire,
             largeur_cible,
             hauteur_cible
         )
 
+        # La réduction écran s'applique aux coordonnées et aux dimensions
+        # fixes. Le profil de police reste actif, puis est réduit du même
+        # facteur pour conserver les proportions.
+        _adapter_mise_en_page_widget_ecran(
+            fenetre_secondaire,
+            facteur_ecran
+        )
+
+        _appliquer_taille_police_widget(
+            fenetre_secondaire,
+            facteur_taille_police() * facteur_ecran
+        )
+
+        _centrer_dans_zone_travail(
+            fenetre_secondaire,
+            largeur_cible,
+            hauteur_cible,
+            parent=parent,
+            zone_travail=zone,
+        )
+
+        fenetre_secondaire._zone_moniteur_adaptative = zone
+
     except Exception:
         pass
+    finally:
+        try:
+            fenetre_secondaire._adaptation_ecran_en_cours = False
+        except Exception:
+            pass
 
 
 
@@ -12954,14 +13513,16 @@ def appliquer_chrome_custom(
     fenetre_secondaire.after(
         80,
         lambda f=fenetre_secondaire:
-        (
-            _appliquer_taille_police_widget(
-                f,
-                facteur_taille_police()
-            ),
-            ajuster_fenetre_custom_au_contenu(
-                f
-            )
+        ajuster_fenetre_custom_au_contenu(
+            f
+        )
+    )
+
+    _installer_suivi_moniteur(
+        fenetre_secondaire,
+        lambda f=fenetre_secondaire:
+        ajuster_fenetre_custom_au_contenu(
+            f
         )
     )
 
@@ -23594,6 +24155,35 @@ def ouvrir_selecteur_preset():
             230
         )
 
+    gauche, haut, largeur_zone, hauteur_zone = _zone_travail_moniteur(
+        popup,
+        parent=fenetre
+    )
+
+    largeur = min(
+        largeur,
+        max(120, largeur_zone - 2 * MARGE_ECRAN_ADAPTATIVE)
+    )
+    hauteur = min(
+        hauteur,
+        max(46, hauteur_zone - 2 * MARGE_ECRAN_ADAPTATIVE)
+    )
+
+    x = max(
+        gauche + MARGE_ECRAN_ADAPTATIVE,
+        min(
+            x,
+            gauche + largeur_zone - largeur - MARGE_ECRAN_ADAPTATIVE
+        )
+    )
+    y = max(
+        haut + MARGE_ECRAN_ADAPTATIVE,
+        min(
+            y,
+            haut + hauteur_zone - hauteur - MARGE_ECRAN_ADAPTATIVE
+        )
+    )
+
     popup.geometry(
         f"{largeur}x{hauteur}+{x}+{y}"
     )
@@ -29224,6 +29814,13 @@ fenetre.after_idle(
 fenetre.after(
     120,
     adapter_boxes_fenetre_principale
+)
+
+# Dernière passe après la construction complète : capture les coordonnées
+# de base de tous les widgets puis applique le facteur du moniteur courant.
+fenetre.after(
+    180,
+    adapter_fenetre_principale_ecran
 )
 
 

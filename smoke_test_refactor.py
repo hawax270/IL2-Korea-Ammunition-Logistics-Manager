@@ -61,7 +61,7 @@ def verifier_chargement_carriere_systematique_v0959():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source
     assert "def afficher_chargement_carriere(" in source
     assert "duree_minimale=5.0" in source
     assert 'name="chargement-carriere"' in source
@@ -120,7 +120,7 @@ def verifier_anglais_par_defaut_v09592():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source_interface
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source_interface
     assert '"langue": "en"' in source_app_data
 
     assert 'resultat[\n                "langue"\n            ] = "en"' in source_interface
@@ -147,7 +147,7 @@ def verifier_career_linked_v09593():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source
     assert 'anchor="center"' in source
     assert 'f"{nom_avion}  •  "' in source
 
@@ -165,7 +165,7 @@ def verifier_donnees_utilisateur_localappdata_v101():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source
     assert 'os.environ.get(' in source
     assert '"LOCALAPPDATA"' in source
     assert '/ "hawax270"' in source
@@ -249,7 +249,7 @@ def verifier_updater_github_v102():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source
     assert "import updater" in source
     assert "def demarrer_verification_mise_a_jour(" in source
     assert "def demarrer_telechargement_mise_a_jour(" in source
@@ -1388,7 +1388,7 @@ def verifier_traduction_complete_v0956():
     assert i18n.t_priorite("TRÈS ÉLEVÉE") == "CRITIQUE"
 
     source = Path(__file__).with_name("interface.py").read_text(encoding="utf-8")
-    assert 'VERSION_APPLICATION = "v1.0.2"' in source
+    assert 'VERSION_APPLICATION = "v1.1.0"' in source
     assert 'text="RÉPARTITION PRÉVISIONNELLE DU STOCK"' not in source
     assert 'text="HAUT COMMANDEMENT"' not in source
     assert 'text="RAPPORTS LOGISTIQUES"' not in source
@@ -1496,7 +1496,7 @@ def verifier_absence_auto_verrouillage_sqlite():
 
 def verifier_performance_ui_v0957():
     source = Path(__file__).with_name("interface.py").read_text(encoding="utf-8")
-    assert "VERSION_APPLICATION = \"v1.0.2\"" in source
+    assert "VERSION_APPLICATION = \"v1.1.0\"" in source
     assert "def charger_image_pil_cache(" in source
     assert "def creer_photoimage_cache(" in source
     assert "_CACHE_DONUTS_PIL" in source
@@ -1504,8 +1504,52 @@ def verifier_performance_ui_v0957():
     assert source.count("journaliser_performance_ui(") >= 9
 
 
+def verifier_adaptation_multi_ecran_v110():
+    source = Path(__file__).with_name("interface.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "def _zone_travail_moniteur(" in source
+    assert "MonitorFromPoint" in source
+    assert "rcWork" in source
+    assert "def _installer_suivi_moniteur(" in source
+    assert "def adapter_fenetre_principale_ecran(" in source
+    assert "def adapter_fenetre_simple_ecran(" in source
+    assert "def _adapter_mise_en_page_widget_ecran(" in source
+
+    # 24 Toplevels dans cette version : 20 utilisent le chrome custom et
+    # quatre fenêtres spéciales possèdent une adaptation dédiée.
+    assert source.count("tk.Toplevel(") == 24
+    assert source.count("appliquer_chrome_custom(") == 21  # def + 20 appels
+
+    bloc_liaison = source[
+        source.index("def selectionner_carriere_avant_demarrage("):
+        source.index("# ============================================================\n# PROFILS D'AFFICHAGE")
+    ]
+    assert "adapter_fenetre_simple_ecran(" in bloc_liaison
+
+    bloc_splash = source[
+        source.index("def afficher_splash("):
+        source.index("# ============================================================\n# HÔTE WINDOWS PERSISTANT")
+    ]
+    assert "_zone_travail_moniteur(" in bloc_splash
+    assert "facteur_splash" in bloc_splash
+
+    bloc_loading = source[
+        source.index("def afficher_chargement_carriere("):
+        source.index("# ============================================================\n# INITIALISATION")
+    ]
+    assert "adapter_fenetre_simple_ecran(" in bloc_loading
+
+    debut_preset = source.index("def ouvrir_selecteur_preset(")
+    fin_preset = source.index("def actualiser_menu_presets(", debut_preset)
+    bloc_preset = source[debut_preset:fin_preset]
+    assert "_zone_travail_moniteur(" in bloc_preset
+
+
 def main():
     verifier_performance_ui_v0957()
+    verifier_adaptation_multi_ecran_v110()
     verifier_catalogue()
     verifier_i18n()
     verifier_chargement_carriere_systematique_v0959()
@@ -1525,7 +1569,7 @@ def main():
     verifier_traduction_complete_v0956()
     verifier_reception_ravitaillement_robuste()
     verifier_absence_auto_verrouillage_sqlite()
-    print("SMOKE TESTS v1.0.2 : OK")
+    print("SMOKE TESTS v1.1.0 : OK")
 
 
 if __name__ == "__main__":

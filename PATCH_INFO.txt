@@ -1,0 +1,7 @@
+IL2 Korea Ammunition Logistics Manager - Splash centering fix
+
+- Centers the startup loading/splash screen on the monitor under the mouse cursor.
+- Fixes incorrect positioning caused by the hidden main Tk window during startup.
+- Does not change the application version.
+
+Replace interface.py in the project root, then rebuild with build_windows.bat.
