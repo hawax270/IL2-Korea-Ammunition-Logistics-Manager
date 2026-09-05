@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.0.3
+- updater fix 
+
 ## v1.0.2
 - update images on loading screen
 
