@@ -76,7 +76,7 @@ from i18n import (
 # VERSION
 # ============================================================
 
-VERSION_APPLICATION = "v1.0.3"
+VERSION_APPLICATION = "v1.1.0"
 
 # Refactor pré-1.0 : données, lecture carrière et base locale séparées de l’UI.
 

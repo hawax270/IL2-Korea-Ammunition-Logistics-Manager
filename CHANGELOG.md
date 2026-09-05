@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.1.0
+- final version
+
 ## v1.0.3
 - updater fix 
 
