@@ -963,7 +963,8 @@ def selectionner_carriere_avant_demarrage():
         largeur,
         hauteur,
         parent=fenetre,
-        adapter_contenu=False
+        adapter_contenu=False,
+        respecter_profils=True
     )
 
     liaison.configure(
@@ -988,8 +989,8 @@ def selectionner_carriere_avant_demarrage():
     contour.place(
         x=0,
         y=0,
-        width=largeur,
-        height=hauteur
+        relwidth=1.0,
+        relheight=1.0
     )
 
 
@@ -1001,8 +1002,10 @@ def selectionner_carriere_avant_demarrage():
     contenu.place(
         x=1,
         y=1,
-        width=largeur - 2,
-        height=hauteur - 2
+        relwidth=1.0,
+        relheight=1.0,
+        width=-2,
+        height=-2
     )
 
 
@@ -1167,6 +1170,22 @@ def selectionner_carriere_avant_demarrage():
     )
 
 
+    # La zone d'actions est réservée AVANT le panneau de résultats.
+    # Ainsi, même avec le profil GRAND ou sur un écran plus petit,
+    # le bouton de sélection de carrière reste toujours accessible.
+    zone_boutons = tk.Frame(
+        contenu,
+        bg=theme["fond"]
+    )
+
+    zone_boutons.pack(
+        side="bottom",
+        fill="x",
+        padx=38,
+        pady=(0, 24)
+    )
+
+
     label_fichier = tk.Label(
         cadre_fichier,
         text=t("career.none"),
@@ -1296,18 +1315,6 @@ def selectionner_carriere_avant_demarrage():
     # --------------------------------------------------------
     # ACTIONS
     # --------------------------------------------------------
-
-    zone_boutons = tk.Frame(
-        contenu,
-        bg=theme["fond"]
-    )
-
-    zone_boutons.pack(
-        fill="x",
-        padx=38,
-        pady=(0, 24)
-    )
-
 
     bouton_continuer = tk.Button(
         zone_boutons,
@@ -1589,7 +1596,8 @@ def selectionner_carriere_avant_demarrage():
             largeur,
             hauteur,
             parent=fenetre,
-            adapter_contenu=True
+            adapter_contenu=True,
+            respecter_profils=True
         )
     )
 
@@ -1661,23 +1669,20 @@ def facteur_taille_fenetres():
 # ADAPTATION AUTOMATIQUE AUX ECRANS / MULTI-MONITEURS
 # ============================================================
 #
-# L'interface historique a été dessinée sur une base 1600x900 et plusieurs
-# fenêtres secondaires possèdent elles aussi une taille de référence fixe.
-# Sur un écran plus petit, réduire uniquement la fenêtre coupe les contrôles.
-# Le système ci-dessous :
-#   - récupère la zone de travail REELLE du moniteur courant (barre des tâches
-#     exclue sous Windows) ;
-#   - réduit la géométrie de la fenêtre si nécessaire ;
-#   - réduit dans la même proportion les widgets positionnés en pixels ;
-#   - réduit les polices avec la même correction ;
-#   - réapplique automatiquement le bon facteur lorsqu'une fenêtre est déplacée
-#     vers un autre moniteur.
-#
-# Le facteur automatique ne sert qu'à REDUIRE. Sur un grand écran, les profils
-# COMPACT / STANDARD / GRAND continuent donc de fonctionner normalement.
+# Chaque fenêtre conserve UNE taille de référence stable. Le dimensionnement
+# suit ensuite une règle unique et déterministe : profil demandé -> facteur de
+# sécurité écran -> même facteur appliqué au layout. On ne mesure jamais le
+# contenu pour agrandir une fenêtre, ce qui évite les dérives entre machines.
+# La zone de travail réelle du moniteur (barre des tâches exclue sous Windows)
+# reste prise en compte, y compris lorsqu'une fenêtre change de moniteur.
 
 MARGE_ECRAN_ADAPTATIVE = 14
 FACTEUR_ECRAN_MINIMUM = 0.40
+
+# Une police peut être légèrement plus grande que le layout, mais jamais au
+# point de pousser des contrôles hors écran. Cela garde le réglage de police
+# visible sans réintroduire les fenêtres coupées.
+RATIO_POLICE_MAX_PAR_LAYOUT = 1.25
 
 
 def _zone_travail_moniteur(fenetre_cible=None, parent=None, point_ecran=None):
@@ -1965,6 +1970,23 @@ def _adapter_mise_en_page_widget_ecran(widget, facteur):
                     except Exception:
                         pass
 
+        # Les labels/boutons avec wraplength fixe doivent suivre la même
+        # réduction. Sinon le texte peut continuer à réclamer une largeur
+        # supérieure à celle de la fenêtre adaptée.
+        try:
+            wrap_base = getattr(cible, "_wraplength_base_ecran", None)
+            if wrap_base is None:
+                wrap_actuel = _valeur_pixel_tk(cible.cget("wraplength"))
+                if wrap_actuel is not None and wrap_actuel > 0:
+                    wrap_base = wrap_actuel
+                    cible._wraplength_base_ecran = wrap_base
+            if wrap_base:
+                cible.configure(
+                    wraplength=max(1, int(round(wrap_base * facteur)))
+                )
+        except Exception:
+            pass
+
         if isinstance(cible, tk.Canvas):
             _adapter_canvas_items_ecran(
                 cible,
@@ -1992,6 +2014,7 @@ def _reinitialiser_references_layout_ecran(widget):
         "_place_base_ecran",
         "_dimension_base_ecran",
         "_coordonnees_canvas_base_ecran",
+        "_wraplength_base_ecran",
     )
 
     def parcourir(cible):
@@ -2013,7 +2036,14 @@ def _reinitialiser_references_layout_ecran(widget):
 
 
 def _installer_suivi_moniteur(fenetre_cible, callback):
-    """Réajuste la fenêtre lorsqu'elle est déplacée vers un autre écran."""
+    """Réajuste une fenêtre lorsqu'elle change de moniteur.
+
+    Le callback courant est remplaçable. C'est important pour les fenêtres
+    construites en deux temps : une première passe peut ne positionner que la
+    géométrie, puis la passe finale active l'adaptation du contenu.
+    """
+    fenetre_cible._callback_adaptation_moniteur = callback
+
     if getattr(
         fenetre_cible,
         "_suivi_moniteur_adaptatif",
@@ -2027,6 +2057,18 @@ def _installer_suivi_moniteur(fenetre_cible, callback):
         parent=getattr(fenetre_cible, "master", None)
     )
     fenetre_cible._after_adaptation_moniteur = None
+
+    def executer_callback_courant():
+        try:
+            callback_courant = getattr(
+                fenetre_cible,
+                "_callback_adaptation_moniteur",
+                None
+            )
+            if callback_courant is not None:
+                callback_courant()
+        except Exception:
+            pass
 
     def verifier_changement(event=None):
         if event is not None and event.widget is not fenetre_cible:
@@ -2069,7 +2111,7 @@ def _installer_suivi_moniteur(fenetre_cible, callback):
         try:
             fenetre_cible._after_adaptation_moniteur = fenetre_cible.after(
                 90,
-                callback
+                executer_callback_courant
             )
         except Exception:
             pass
@@ -2080,15 +2122,26 @@ def _installer_suivi_moniteur(fenetre_cible, callback):
         add="+"
     )
 
-
 def adapter_fenetre_simple_ecran(
     fenetre_cible,
     largeur_base,
     hauteur_base,
     parent=None,
     adapter_contenu=True,
+    respecter_profils=False,
 ):
-    """Adaptation générique pour les fenêtres qui n'utilisent pas le chrome."""
+    """Dimensionnement déterministe des fenêtres simples.
+
+    Principe volontairement simple :
+      1. la taille de référence est multipliée par le profil de fenêtre ;
+      2. si cela dépasse le moniteur, UN SEUL facteur la fait tenir ;
+      3. le contenu reçoit exactement le même facteur de layout ;
+      4. la police garde son profil, avec une limite de sécurité par rapport
+         au layout pour éviter tout texte ou bouton inaccessible.
+
+    Aucun auto-mesurage du contenu n'est effectué : la géométrie ne peut donc
+    plus grossir ou dériver en fonction du rendu de police d'une machine.
+    """
     try:
         if not fenetre_cible.winfo_exists():
             return 1.0
@@ -2098,30 +2151,65 @@ def adapter_fenetre_simple_ecran(
             fenetre_cible,
             parent=parent
         )
-        facteur = _facteur_pour_zone_travail(
-            largeur_base,
-            hauteur_base,
+
+        facteur_fenetre = (
+            facteur_taille_fenetres()
+            if respecter_profils
+            else 1.0
+        )
+        facteur_police = (
+            facteur_taille_police()
+            if respecter_profils
+            else 1.0
+        )
+
+        largeur_reference = max(
+            1,
+            int(round(float(largeur_base) * float(facteur_fenetre)))
+        )
+        hauteur_reference = max(
+            1,
+            int(round(float(hauteur_base) * float(facteur_fenetre)))
+        )
+
+        facteur_ecran = _facteur_pour_zone_travail(
+            largeur_reference,
+            hauteur_reference,
             zone
         )
 
-        largeur = max(1, int(round(largeur_base * facteur)))
-        hauteur = max(1, int(round(hauteur_base * facteur)))
+        facteur_layout = float(facteur_fenetre) * float(facteur_ecran)
+        facteur_police_effectif = min(
+            float(facteur_police),
+            max(
+                FACTEUR_ECRAN_MINIMUM,
+                facteur_layout * RATIO_POLICE_MAX_PAR_LAYOUT
+            )
+        )
 
-        fenetre_cible._facteur_auto_ecran = facteur
+        largeur = max(1, int(round(float(largeur_base) * facteur_layout)))
+        hauteur = max(1, int(round(float(hauteur_base) * facteur_layout)))
+
+        fenetre_cible._facteur_auto_ecran = facteur_ecran
+        fenetre_cible._facteur_layout_effectif = facteur_layout
         fenetre_cible._taille_base_ecran = (
             int(largeur_base),
             int(hauteur_base),
         )
+        fenetre_cible._adapter_simple_respecter_profils = bool(
+            respecter_profils
+        )
+        fenetre_cible._adapter_simple_parent = parent
 
         if adapter_contenu:
             _adapter_mise_en_page_widget_ecran(
                 fenetre_cible,
-                facteur
+                facteur_layout
             )
             try:
                 _appliquer_taille_police_widget(
                     fenetre_cible,
-                    facteur_taille_police() * facteur
+                    facteur_police_effectif
                 )
             except Exception:
                 pass
@@ -2137,7 +2225,7 @@ def adapter_fenetre_simple_ecran(
         fenetre_cible._zone_moniteur_adaptative = zone
 
     except Exception:
-        facteur = 1.0
+        facteur_ecran = 1.0
     finally:
         try:
             fenetre_cible._adaptation_ecran_en_cours = False
@@ -2146,18 +2234,18 @@ def adapter_fenetre_simple_ecran(
 
     _installer_suivi_moniteur(
         fenetre_cible,
-        lambda f=fenetre_cible, w=largeur_base, h=hauteur_base, p=parent:
+        lambda f=fenetre_cible, w=largeur_base, h=hauteur_base, p=parent, rp=respecter_profils:
         adapter_fenetre_simple_ecran(
             f,
             w,
             h,
             parent=p,
             adapter_contenu=adapter_contenu,
+            respecter_profils=rp,
         )
     )
 
-    return facteur
-
+    return facteur_ecran
 
 def adapter_fenetre_principale_ecran(adapter_contenu=True):
     """Fait tenir l'interface 1600x900 sur le moniteur où elle se trouve."""
@@ -2196,9 +2284,16 @@ def adapter_fenetre_principale_ecran(adapter_contenu=True):
                 fenetre,
                 facteur
             )
+            facteur_police_effectif = min(
+                float(facteur_taille_police()),
+                max(
+                    FACTEUR_ECRAN_MINIMUM,
+                    float(facteur) * RATIO_POLICE_MAX_PAR_LAYOUT
+                )
+            )
             _appliquer_taille_police_widget(
                 fenetre,
-                facteur_taille_police() * facteur
+                facteur_police_effectif
             )
 
         _centrer_dans_zone_travail(
@@ -2302,6 +2397,76 @@ def _extraire_font_base_widget(
         return None
 
 
+def _appliquer_taille_police_canvas(canvas, facteur):
+    """Applique le profil de police aux textes dessinés dans un Canvas.
+
+    Les Canvas n'exposent pas leurs ``create_text`` comme des widgets Tk.
+    Ils échappaient donc jusque-là aux profils COMPACT / STANDARD / GRAND.
+    """
+    try:
+        bases = getattr(canvas, "_polices_canvas_base_interface", None)
+        if bases is None:
+            bases = {}
+            canvas._polices_canvas_base_interface = bases
+
+        for item in canvas.find_all():
+            try:
+                if canvas.type(item) != "text":
+                    continue
+            except Exception:
+                continue
+
+            base = bases.get(item)
+            if base is None:
+                try:
+                    valeur_font = canvas.itemcget(item, "font")
+                    if not valeur_font:
+                        continue
+                    font_temp = tkfont.Font(font=valeur_font)
+                    infos = font_temp.actual()
+                    base = {
+                        "family": infos.get("family", POLICE),
+                        "size": int(infos.get("size", 10)),
+                        "weight": infos.get("weight", "normal"),
+                        "slant": infos.get("slant", "roman"),
+                        "underline": int(infos.get("underline", 0)),
+                        "overstrike": int(infos.get("overstrike", 0)),
+                    }
+                    bases[item] = base
+                except Exception:
+                    continue
+
+            taille_base = int(base["size"])
+            signe = -1 if taille_base < 0 else 1
+            nouvelle_taille = signe * max(
+                6,
+                int(round(abs(taille_base) * float(facteur)))
+            )
+
+            styles = []
+            if base["weight"] == "bold":
+                styles.append("bold")
+            if base["slant"] == "italic":
+                styles.append("italic")
+            if base["underline"]:
+                styles.append("underline")
+            if base["overstrike"]:
+                styles.append("overstrike")
+
+            police = (
+                base["family"],
+                nouvelle_taille,
+                " ".join(styles) if styles else "normal"
+            )
+
+            try:
+                canvas.itemconfigure(item, font=police)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _appliquer_taille_police_widget(
     widget,
     facteur
@@ -2319,6 +2484,12 @@ def _appliquer_taille_police_widget(
         False
     ):
         return
+
+    if isinstance(widget, tk.Canvas):
+        _appliquer_taille_police_canvas(
+            widget,
+            facteur
+        )
 
     base = _extraire_font_base_widget(
         widget
@@ -2986,12 +3157,16 @@ def appliquer_taille_police_globale():
     except Exception:
         pass
 
-    # Le changement de police ne relance plus l'auto-dimensionnement
-    # global des fenêtres existantes. Cela évite qu'un changement de texte
-    # modifie indirectement et cumulativement leur géométrie.
-    #
-    # Les nouvelles fenêtres sont toujours auto-dimensionnées à leur
-    # ouverture si leur contenu en a réellement besoin.
+    # Une police plus grande change réellement la place nécessaire au texte.
+    # Les fenêtres ouvertes sont donc recalculées depuis leurs dimensions de
+    # base, puis réadaptées au moniteur. Le calcul est déterministe et n'est
+    # pas cumulatif.
+    try:
+        fenetre.after_idle(
+            appliquer_taille_fenetres_ouvertes
+        )
+    except Exception:
+        pass
 
 
 def appliquer_taille_fenetres_ouvertes():
@@ -3011,6 +3186,35 @@ def appliquer_taille_fenetres_ouvertes():
             ):
                 ajuster_fenetre_custom_au_contenu(
                     enfant
+                )
+                continue
+
+            # Fenêtres simples qui ont explicitement demandé le respect des
+            # profils (notamment la sélection de carrière).
+            base_simple = getattr(
+                enfant,
+                "_taille_base_ecran",
+                None
+            )
+            if (
+                base_simple
+                and getattr(
+                    enfant,
+                    "_adapter_simple_respecter_profils",
+                    False
+                )
+            ):
+                adapter_fenetre_simple_ecran(
+                    enfant,
+                    base_simple[0],
+                    base_simple[1],
+                    parent=getattr(
+                        enfant,
+                        "_adapter_simple_parent",
+                        fenetre
+                    ),
+                    adapter_contenu=True,
+                    respecter_profils=True,
                 )
 
     except Exception:
@@ -13177,139 +13381,50 @@ def centrer_fenetre_secondaire(fenetre_secondaire, largeur, hauteur):
     )
 
 
-def calculer_taille_contenu_custom(
-    fenetre_secondaire,
-    marge_x=24,
-    marge_y=24
-):
-    """
-    Mesure prudente du contenu.
-
-    Contrairement à l'ancienne version, on n'utilise plus les coordonnées
-    rootx/rooty des widgets, car un widget centré se déplace lorsque la
-    fenêtre grandit et provoquait une croissance cumulative.
-
-    On se base uniquement sur la taille demandée par les conteneurs directs.
-    Les dimensions codées de la fenêtre restent la référence principale.
-    """
-    try:
-        if not fenetre_secondaire.winfo_exists():
-            return (
-                1,
-                1
-            )
-
-        fenetre_secondaire.update_idletasks()
-
-        largeur_requise = max(
-            1,
-            fenetre_secondaire.winfo_reqwidth()
-        )
-
-        hauteur_requise = max(
-            1,
-            fenetre_secondaire.winfo_reqheight()
-        )
-
-        for enfant in fenetre_secondaire.winfo_children():
-            try:
-                largeur_requise = max(
-                    largeur_requise,
-                    enfant.winfo_reqwidth()
-                    + int(
-                        marge_x
-                    )
-                )
-
-                hauteur_requise = max(
-                    hauteur_requise,
-                    enfant.winfo_reqheight()
-                    + int(
-                        marge_y
-                    )
-                )
-            except Exception:
-                pass
-
-        return (
-            largeur_requise,
-            hauteur_requise
-        )
-
-    except Exception:
-        return (
-            1,
-            1
-        )
-
-
-
 def ajuster_fenetre_custom_au_contenu(
     fenetre_secondaire,
     marge_x=24,
     marge_y=24
 ):
-    """
-    Ajuste une fenêtre custom au profil choisi puis au moniteur courant.
+    """Dimensionnement fiable des fenêtres custom.
 
-    La taille de contenu de référence est capturée avant toute réduction écran,
-    ce qui rend les allers-retours entre moniteurs totalement déterministes.
+    Le nom de la fonction est conservé pour compatibilité, mais elle ne mesure
+    plus le contenu. Chaque fenêtre possède une taille de référence explicite.
+    On applique le profil demandé puis, si nécessaire, un seul facteur pour
+    tenir dans la zone utile du moniteur. Le même facteur est ensuite appliqué
+    au layout.
+
+    Résultat : pas de croissance cumulative, pas de fenêtre géante avec une
+    petite zone de contenu, et pas de géométrie différente selon la police
+    installée sur la machine.
     """
+    del marge_x, marge_y  # conservés uniquement pour l'ancienne signature
+
     try:
         if not fenetre_secondaire.winfo_exists():
             return
 
         fenetre_secondaire._adaptation_ecran_en_cours = True
-        fenetre_secondaire.update_idletasks()
 
-        base = getattr(
+        largeur_base, hauteur_base = getattr(
             fenetre_secondaire,
             "_taille_base_custom",
-            getattr(
-                fenetre_secondaire,
-                "_taille_min_custom",
-                (
-                    fenetre_secondaire.winfo_width(),
-                    fenetre_secondaire.winfo_height()
-                )
+            (
+                max(1, fenetre_secondaire.winfo_width()),
+                max(1, fenetre_secondaire.winfo_height()),
             )
         )
 
-        largeur_base, hauteur_base = base
-        facteur_profil = facteur_taille_fenetres()
-
-        largeur_profil = max(
-            420,
-            int(round(largeur_base * facteur_profil))
-        )
-        hauteur_profil = max(
-            260,
-            int(round(hauteur_base * facteur_profil))
-        )
-
-        contenu_base = getattr(
-            fenetre_secondaire,
-            "_taille_contenu_base_custom",
-            None
-        )
-
-        if contenu_base is None:
-            contenu_base = calculer_taille_contenu_custom(
-                fenetre_secondaire,
-                marge_x=marge_x,
-                marge_y=marge_y
-            )
-            fenetre_secondaire._taille_contenu_base_custom = contenu_base
-
-        largeur_contenu, hauteur_contenu = contenu_base
+        facteur_fenetre = float(facteur_taille_fenetres())
+        facteur_police = float(facteur_taille_police())
 
         largeur_reference = max(
-            largeur_profil,
-            int(round(largeur_contenu * facteur_profil))
+            1,
+            int(round(float(largeur_base) * facteur_fenetre))
         )
         hauteur_reference = max(
-            hauteur_profil,
-            int(round(hauteur_contenu * facteur_profil))
+            1,
+            int(round(float(hauteur_base) * facteur_fenetre))
         )
 
         parent = getattr(
@@ -13327,33 +13442,38 @@ def ajuster_fenetre_custom_au_contenu(
             hauteur_reference,
             zone
         )
+        facteur_layout = facteur_fenetre * float(facteur_ecran)
+        facteur_police_effectif = min(
+            facteur_police,
+            max(
+                FACTEUR_ECRAN_MINIMUM,
+                facteur_layout * RATIO_POLICE_MAX_PAR_LAYOUT
+            )
+        )
 
         largeur_cible = max(
             240,
-            int(round(largeur_reference * facteur_ecran))
+            int(round(float(largeur_base) * facteur_layout))
         )
         hauteur_cible = max(
             180,
-            int(round(hauteur_reference * facteur_ecran))
+            int(round(float(hauteur_base) * facteur_layout))
         )
 
         fenetre_secondaire._facteur_auto_ecran = facteur_ecran
+        fenetre_secondaire._facteur_layout_effectif = facteur_layout
         fenetre_secondaire._taille_min_custom = (
             largeur_cible,
             hauteur_cible
         )
 
-        # La réduction écran s'applique aux coordonnées et aux dimensions
-        # fixes. Le profil de police reste actif, puis est réduit du même
-        # facteur pour conserver les proportions.
         _adapter_mise_en_page_widget_ecran(
             fenetre_secondaire,
-            facteur_ecran
+            facteur_layout
         )
-
         _appliquer_taille_police_widget(
             fenetre_secondaire,
-            facteur_taille_police() * facteur_ecran
+            facteur_police_effectif
         )
 
         _centrer_dans_zone_travail(
@@ -13374,8 +13494,6 @@ def ajuster_fenetre_custom_au_contenu(
         except Exception:
             pass
 
-
-
 def appliquer_chrome_custom(
     fenetre_secondaire,
     titre,
@@ -13393,50 +13511,41 @@ def appliquer_chrome_custom(
         bg=theme["fond"]
     )
 
-    # Les dimensions codées constituent la base STANDARD.
-    # COMPACT / GRAND appliquent un facteur global sans modifier les
-    # coordonnées internes des widgets ; l'auto-dimensionnement garde
-    # toujours suffisamment de place pour le contenu.
+    # Une seule taille de référence par fenêtre. Le profil et la taille du
+    # moniteur sont appliqués de manière déterministe ; aucun contenu n'est
+    # mesuré pour décider de la géométrie.
     fenetre_secondaire._taille_base_custom = (
-        int(
-            largeur
-        ),
-        int(
-            hauteur
-        )
+        int(largeur),
+        int(hauteur)
     )
 
-    facteur_fenetre = facteur_taille_fenetres()
-
-    largeur_affichee = max(
-        420,
-        int(
-            round(
-                largeur
-                * facteur_fenetre
-            )
-        )
+    facteur_fenetre = float(facteur_taille_fenetres())
+    zone_initiale = _zone_travail_moniteur(
+        fenetre_secondaire,
+        parent=getattr(fenetre_secondaire, "master", fenetre)
     )
-
-    hauteur_affichee = max(
-        260,
-        int(
-            round(
-                hauteur
-                * facteur_fenetre
-            )
-        )
+    largeur_reference = max(1, int(round(float(largeur) * facteur_fenetre)))
+    hauteur_reference = max(1, int(round(float(hauteur) * facteur_fenetre)))
+    facteur_ecran_initial = _facteur_pour_zone_travail(
+        largeur_reference,
+        hauteur_reference,
+        zone_initiale
     )
+    facteur_layout_initial = facteur_fenetre * facteur_ecran_initial
+    largeur_affichee = max(240, int(round(float(largeur) * facteur_layout_initial)))
+    hauteur_affichee = max(180, int(round(float(hauteur) * facteur_layout_initial)))
 
     fenetre_secondaire._taille_min_custom = (
         largeur_affichee,
         hauteur_affichee
     )
 
-    centrer_fenetre_secondaire(
+    _centrer_dans_zone_travail(
         fenetre_secondaire,
         largeur_affichee,
-        hauteur_affichee
+        hauteur_affichee,
+        parent=getattr(fenetre_secondaire, "master", fenetre),
+        zone_travail=zone_initiale,
     )
 
     ajouter_contour_fenetre(
@@ -13506,10 +13615,8 @@ def appliquer_chrome_custom(
         )
     )
 
-    # Une seule passe différée suffit désormais.
-    #
-    # Les anciennes passes multiples pouvaient amplifier les dimensions
-    # d'une fenêtre lorsque le contenu était centré ou repositionné.
+    # Une seule passe différée, après construction des widgets, applique le
+    # facteur de layout définitif. Aucune mesure de contenu n'intervient.
     fenetre_secondaire.after(
         80,
         lambda f=fenetre_secondaire:
@@ -18751,7 +18858,6 @@ def ouvrir_consultation_repartition_stock():
 
     barre = tk.Frame(
         corps,
-        height=80,
         bg=theme["panneau"]
     )
 
@@ -18761,9 +18867,14 @@ def ouvrir_consultation_repartition_stock():
         pady=(10, 8)
     )
 
-    barre.pack_propagate(
-        False
-    )
+    # Barre réellement responsive : aucune coordonnée x/largeur fixe.
+    # Chaque groupe conserve sa place et la zone d'information absorbe
+    # simplement l'espace supplémentaire.
+    barre.grid_columnconfigure(0, weight=3)
+    barre.grid_columnconfigure(1, weight=1)
+    barre.grid_columnconfigure(2, weight=2)
+    barre.grid_columnconfigure(3, weight=3)
+    barre.grid_columnconfigure(4, weight=7)
 
     tk.Label(
         barre,
@@ -18771,12 +18882,7 @@ def ouvrir_consultation_repartition_stock():
         font=(POLICE, 7, "bold"),
         bg=theme["panneau"],
         fg=theme["texte_faible"]
-    ).place(
-        x=14,
-        y=5,
-        width=180,
-        height=16
-    )
+    ).grid(row=0, column=0, sticky="ew", padx=(12, 6), pady=(5, 2))
 
     label_modele = tk.Label(
         barre,
@@ -18787,23 +18893,10 @@ def ouvrir_consultation_repartition_stock():
         relief="solid",
         borderwidth=1
     )
+    label_modele.grid(row=1, column=0, sticky="ew", padx=(12, 6), pady=(0, 10), ipady=8)
 
-    label_modele.place(
-        x=14,
-        y=25,
-        width=235,
-        height=38
-    )
-
-    variable_annee = tk.IntVar(
-        value=annee_initiale
-    )
-
-    variable_mois = tk.StringVar(
-        value=t_mois(
-            mois_initial
-        )
-    )
+    variable_annee = tk.IntVar(value=annee_initiale)
+    variable_mois = tk.StringVar(value=t_mois(mois_initial))
 
     tk.Label(
         barre,
@@ -18811,12 +18904,7 @@ def ouvrir_consultation_repartition_stock():
         font=(POLICE, 7, "bold"),
         bg=theme["panneau"],
         fg=theme["texte_faible"]
-    ).place(
-        x=285,
-        y=5,
-        width=110,
-        height=16
-    )
+    ).grid(row=0, column=1, sticky="ew", padx=6, pady=(5, 2))
 
     spin_annee = tk.Spinbox(
         barre,
@@ -18832,13 +18920,7 @@ def ouvrir_consultation_repartition_stock():
         relief="solid",
         borderwidth=1
     )
-
-    spin_annee.place(
-        x=285,
-        y=25,
-        width=110,
-        height=38
-    )
+    spin_annee.grid(row=1, column=1, sticky="ew", padx=6, pady=(0, 10), ipady=7)
 
     tk.Label(
         barre,
@@ -18846,24 +18928,11 @@ def ouvrir_consultation_repartition_stock():
         font=(POLICE, 7, "bold"),
         bg=theme["panneau"],
         fg=theme["texte_faible"]
-    ).place(
-        x=415,
-        y=5,
-        width=165,
-        height=16
-    )
+    ).grid(row=0, column=2, sticky="ew", padx=6, pady=(5, 2))
 
     spin_mois = tk.Spinbox(
         barre,
-        values=tuple(
-            t_mois(
-                numero
-            )
-            for numero in range(
-                1,
-                13
-            )
-        ),
+        values=tuple(t_mois(numero) for numero in range(1, 13)),
         wrap=True,
         state="readonly",
         textvariable=variable_mois,
@@ -18876,33 +18945,13 @@ def ouvrir_consultation_repartition_stock():
         relief="solid",
         borderwidth=1
     )
-
-    spin_mois.place(
-        x=415,
-        y=25,
-        width=165,
-        height=38
-    )
+    spin_mois.grid(row=1, column=2, sticky="ew", padx=6, pady=(0, 10), ipady=7)
 
     # --------------------------------------------------------
     # CORRECTIF DATE DE CARRIERE
     # --------------------------------------------------------
-    # Le Spinbox readonly peut écraser la valeur initiale du StringVar
-    # et revenir sur la première valeur de sa liste : JANVIER.
-    #
-    # On le repositionne donc explicitement APRES sa création avec
-    # le mois réellement lu dans career.currentDate.
-    variable_annee.set(
-        int(
-            annee_initiale
-        )
-    )
-
-    positionner_spinbox_mois(
-        spin_mois,
-        variable_mois,
-        mois_initial
-    )
+    variable_annee.set(int(annee_initiale))
+    positionner_spinbox_mois(spin_mois, variable_mois, mois_initial)
 
     bouton_urgence = tk.Button(
         barre,
@@ -18918,32 +18967,22 @@ def ouvrir_consultation_repartition_stock():
         cursor="hand2",
         anchor="center",
         justify="center",
-        padx=0,
+        padx=4,
         pady=0
     )
+    bouton_urgence.grid(row=1, column=3, sticky="ew", padx=6, pady=(0, 10), ipady=7)
 
-    bouton_urgence.place(
-        x=595,
-        y=25,
-        width=240,
-        height=38
-    )
-
+    # Le statut peut grandir/rétrécir sans pousser les autres commandes.
     label_info = tk.Label(
         barre,
         text="",
         font=(POLICE, 8, "bold"),
         anchor="e",
+        justify="right",
         bg=theme["panneau"],
         fg=theme["texte_faible"]
     )
-
-    label_info.place(
-        x=860,
-        y=25,
-        width=915,
-        height=38
-    )
+    label_info.grid(row=0, column=4, rowspan=2, sticky="nsew", padx=(10, 12), pady=(5, 10))
 
     # ========================================================
     # ZONE 3 COLONNES
@@ -18961,25 +19000,29 @@ def ouvrir_consultation_repartition_stock():
         pady=(0, 14)
     )
 
+    # Layout réellement responsive : les trois panneaux occupent toujours
+    # toute la largeur disponible. Les proportions restent stables et les
+    # contenus internes gèrent eux-mêmes leur scroll quand l'écran est petit.
+    zone_principale.grid_rowconfigure(0, weight=1)
+    zone_principale.grid_columnconfigure(0, weight=30, uniform="forecast_cols")
+    zone_principale.grid_columnconfigure(1, weight=30, uniform="forecast_cols")
+    zone_principale.grid_columnconfigure(2, weight=40, uniform="forecast_cols")
+
     # -----------------------
     # GAUCHE
     # -----------------------
 
     panneau_gauche = tk.Frame(
         zone_principale,
-        width=690,
         bg=theme["panneau"],
         highlightbackground=theme["bordure"],
         highlightthickness=1
     )
 
-    panneau_gauche.pack(
-        side="left",
-        fill="both"
-    )
-
-    panneau_gauche.pack_propagate(
-        False
+    panneau_gauche.grid(
+        row=0,
+        column=0,
+        sticky="nsew"
     )
 
     tk.Label(
@@ -19124,20 +19167,16 @@ def ouvrir_consultation_repartition_stock():
 
     panneau_centre = tk.Frame(
         zone_principale,
-        width=570,
         bg=theme["panneau"],
         highlightbackground=theme["bordure"],
         highlightthickness=1
     )
 
-    panneau_centre.pack(
-        side="left",
-        fill="both",
+    panneau_centre.grid(
+        row=0,
+        column=1,
+        sticky="nsew",
         padx=(9, 0)
-    )
-
-    panneau_centre.pack_propagate(
-        False
     )
 
     tk.Label(
@@ -19164,13 +19203,16 @@ def ouvrir_consultation_repartition_stock():
 
     canvas_donut = tk.Canvas(
         panneau_centre,
-        width=520,
-        height=520,
+        width=420,
+        height=420,
         bg=theme["panneau"],
         highlightthickness=0
     )
 
     canvas_donut.pack(
+        fill="both",
+        expand=True,
+        padx=18,
         pady=(8, 0)
     )
 
@@ -19191,20 +19233,16 @@ def ouvrir_consultation_repartition_stock():
 
     panneau_commandement = tk.Frame(
         zone_principale,
-        width=620,
         bg=theme["panneau"],
         highlightbackground=theme["bordure"],
         highlightthickness=1
     )
 
-    panneau_commandement.pack(
-        side="left",
-        fill="both",
+    panneau_commandement.grid(
+        row=0,
+        column=2,
+        sticky="nsew",
         padx=(9, 0)
-    )
-
-    panneau_commandement.pack_propagate(
-        False
     )
 
     tk.Label(
@@ -19354,7 +19392,7 @@ def ouvrir_consultation_repartition_stock():
         font=(POLICE, 8),
         justify="left",
         anchor="nw",
-        wraplength=550,
+        wraplength=420,
         bg=theme["panneau"],
         fg=theme["texte"]
     )
@@ -19362,6 +19400,14 @@ def ouvrir_consultation_repartition_stock():
     label_transit.pack(
         fill="both",
         expand=True
+    )
+
+    panneau_commandement.bind(
+        "<Configure>",
+        lambda event: label_transit.configure(
+            wraplength=max(220, event.width - 40)
+        ),
+        add="+"
     )
 
     # ========================================================
@@ -21243,72 +21289,33 @@ def ouvrir_consultation_repartition_stock():
                 munition
             )
 
-            hauteur_ligne = (
-                72
-                if (
-                    boost_munition > 0
-                    or livraison_munition is not None
-                )
-                else 56
-            )
-
+            # Ligne responsive : la colonne centrale absorbe toute la largeur
+            # disponible et la valeur reste toujours visible à droite.
             ligne_ui = tk.Frame(
                 contenu_liste,
-                height=hauteur_ligne,
                 bg=theme["panneau"]
             )
-
-            ligne_ui.pack(
-                fill="x",
-                pady=2
-            )
-
-            ligne_ui.pack_propagate(
-                False
-            )
+            ligne_ui.pack(fill="x", pady=2)
+            ligne_ui.grid_columnconfigure(0, minsize=5)
+            ligne_ui.grid_columnconfigure(1, weight=1)
+            ligne_ui.grid_columnconfigure(2, weight=0, minsize=78)
 
             tk.Frame(
                 ligne_ui,
                 width=5,
-                bg=couleurs_par_munition[
-                    munition
-                ]
-            ).pack(
-                side="left",
-                fill="y"
-            )
+                bg=couleurs_par_munition[munition]
+            ).grid(row=0, column=0, rowspan=3, sticky="ns")
 
             tk.Label(
                 ligne_ui,
                 text=t_munition(munition),
                 font=(POLICE, 8, "bold"),
                 anchor="w",
+                justify="left",
                 bg=theme["panneau"],
                 fg=theme["texte"]
-            ).place(
-                x=16,
-                y=7,
-                width=430,
-                height=20
-            )
+            ).grid(row=0, column=1, sticky="ew", padx=(11, 6), pady=(5, 0))
 
-            tk.Label(
-                ligne_ui,
-                text=nom_affiche_niveau_repartition(
-                    niveau
-                ),
-                font=(POLICE, 7, "bold"),
-                anchor="w",
-                bg=theme["panneau"],
-                fg=theme["texte_faible"]
-            ).place(
-                x=16,
-                y=28,
-                width=240,
-                height=16
-            )
-
-            # Valeur finale effective à droite.
             tk.Label(
                 ligne_ui,
                 text=f"{pourcentage:.1f} %",
@@ -21320,14 +21327,17 @@ def ouvrir_consultation_repartition_stock():
                     if boost_munition > 0
                     else theme["texte"]
                 )
-            ).place(
-                x=535,
-                y=9,
-                width=100,
-                height=24
-            )
+            ).grid(row=0, column=2, sticky="e", padx=(4, 10), pady=(3, 0))
 
-            # Valeur de base conservée, affichée en gris sous la valeur finale.
+            tk.Label(
+                ligne_ui,
+                text=nom_affiche_niveau_repartition(niveau),
+                font=(POLICE, 7, "bold"),
+                anchor="w",
+                bg=theme["panneau"],
+                fg=theme["texte_faible"]
+            ).grid(row=1, column=1, sticky="w", padx=(11, 6), pady=(0, 4))
+
             if boost_munition > 0:
                 tk.Label(
                     ligne_ui,
@@ -21336,58 +21346,47 @@ def ouvrir_consultation_repartition_stock():
                     anchor="e",
                     bg=theme["panneau"],
                     fg=theme["texte_faible"]
-                ).place(
-                    x=535,
-                    y=30,
-                    width=100,
-                    height=15
-                )
+                ).grid(row=1, column=2, sticky="e", padx=(4, 10), pady=(0, 4))
 
             textes_commandement_munition = []
 
-            # La directive active est affichée une seule fois dans
-            # le bandeau supérieur du panneau.
-
             if boost_munition > 0:
-                textes_commandement_munition.append(
-                    f"★  +{boost_munition:.0f} %"
-                )
+                textes_commandement_munition.append(f"★  +{boost_munition:.0f} %")
 
             if livraison_munition is not None:
                 plage_livraison = (
                     f"{livraison_munition['minimum']}"
                     f"–{livraison_munition['maximum']}"
                 )
-
-                if livraison_munition[
-                    "nombre"
-                ] > 1:
+                if livraison_munition["nombre"] > 1:
                     texte_livraison = t(
                         "hc.delivery.in_progress.many",
-                        count=livraison_munition["nombre"], range=plage_livraison
+                        count=livraison_munition["nombre"],
+                        range=plage_livraison
                     )
                 else:
-                    texte_livraison = t("hc.delivery.in_progress.one", range=plage_livraison)
-
-                textes_commandement_munition.append(
-                    texte_livraison
-                )
+                    texte_livraison = t(
+                        "hc.delivery.in_progress.one",
+                        range=plage_livraison
+                    )
+                textes_commandement_munition.append(texte_livraison)
 
             if textes_commandement_munition:
                 tk.Label(
                     ligne_ui,
-                    text="    ".join(
-                        textes_commandement_munition
-                    ),
+                    text="    ".join(textes_commandement_munition),
                     font=(POLICE, 7, "bold"),
                     anchor="w",
+                    justify="left",
                     bg=theme["panneau"],
                     fg=COULEUR_OR_COMMANDEMENT_ACTIF
-                ).place(
-                    x=16,
-                    y=47,
-                    width=500,
-                    height=16
+                ).grid(
+                    row=2,
+                    column=1,
+                    columnspan=2,
+                    sticky="ew",
+                    padx=(11, 10),
+                    pady=(0, 5)
                 )
 
         valeurs = [
@@ -21416,10 +21415,17 @@ def ouvrir_consultation_repartition_stock():
             "all"
         )
 
+        canvas_donut.update_idletasks()
+        largeur_donut = max(260, canvas_donut.winfo_width())
+        hauteur_donut = max(260, canvas_donut.winfo_height())
+        taille_donut = max(220, min(480, largeur_donut - 24, hauteur_donut - 24))
+        centre_x = largeur_donut // 2
+        centre_y = hauteur_donut // 2
+
         image = creer_donut_image_global(
             valeurs,
             couleurs,
-            taille=480,
+            taille=taille_donut,
             trou=0.50
         )
 
@@ -21430,8 +21436,8 @@ def ouvrir_consultation_repartition_stock():
         canvas_donut.photo_repartition = photo
 
         canvas_donut.create_image(
-            260,
-            260,
+            centre_x,
+            centre_y,
             image=photo,
             anchor="center"
         )
@@ -21445,8 +21451,8 @@ def ouvrir_consultation_repartition_stock():
         )
 
         canvas_donut.create_text(
-            260,
-            238,
+            centre_x,
+            centre_y - 22,
             text=str(
                 actifs
             ),
@@ -21455,8 +21461,8 @@ def ouvrir_consultation_repartition_stock():
         )
 
         canvas_donut.create_text(
-            260,
-            278,
+            centre_x,
+            centre_y + 18,
             text=t("forecast.donut"),
             font=(POLICE, 7, "bold"),
             fill=theme["texte_faible"]
@@ -21474,9 +21480,9 @@ def ouvrir_consultation_repartition_stock():
             text=(
                 f"{periode}  •  "
                 + (
-                    t("forecast.period.standard")
+                    t("forecast.period_standard")
                     if modele == "STANDARD"
-                    else t("forecast.period.custom")
+                    else t("forecast.period_custom")
                 )
             )
         )
@@ -21833,6 +21839,12 @@ def ouvrir_stock_base():
         pady=16
     )
 
+    # Trois colonnes fluides : inventaire / capacité / répartition.
+    zone_principale.grid_rowconfigure(0, weight=1)
+    zone_principale.grid_columnconfigure(0, weight=34, minsize=300)
+    zone_principale.grid_columnconfigure(1, weight=28, minsize=260)
+    zone_principale.grid_columnconfigure(2, weight=38, minsize=320)
+
 
     # ========================================================
     # DONNEES DU STOCK
@@ -21860,19 +21872,15 @@ def ouvrir_stock_base():
 
     panneau_inventaire = tk.Frame(
         zone_principale,
-        width=490,
         bg=theme["panneau"],
         highlightbackground=theme["bordure"],
         highlightthickness=1
     )
 
-    panneau_inventaire.pack(
-        side="left",
-        fill="y"
-    )
-
-    panneau_inventaire.pack_propagate(
-        False
+    panneau_inventaire.grid(
+        row=0,
+        column=0,
+        sticky="nsew"
     )
 
 
@@ -22431,20 +22439,16 @@ def ouvrir_stock_base():
 
     panneau_capacite = tk.Frame(
         zone_principale,
-        width=410,
         bg=theme["panneau"],
         highlightbackground=theme["bordure"],
         highlightthickness=1
     )
 
-    panneau_capacite.pack(
-        side="left",
-        fill="y",
+    panneau_capacite.grid(
+        row=0,
+        column=1,
+        sticky="nsew",
         padx=12
-    )
-
-    panneau_capacite.pack_propagate(
-        False
     )
 
 
@@ -22645,10 +22649,10 @@ def ouvrir_stock_base():
         highlightthickness=1
     )
 
-    panneau_repartition.pack(
-        side="left",
-        fill="both",
-        expand=True
+    panneau_repartition.grid(
+        row=0,
+        column=2,
+        sticky="nsew"
     )
 
 

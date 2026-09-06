@@ -1,5 +1,5 @@
 ﻿#define MyAppName "IL2 Korea Ammunition Logistics Manager"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "hawax270"
 #define MyAppExeName "IL2_Korea_Ammunition_Logistics_Manager.exe"
 #define MyAppFolderName "IL2 Korea Ammunition Logistics Manager"

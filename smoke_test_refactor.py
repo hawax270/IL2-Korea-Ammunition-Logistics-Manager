@@ -1527,6 +1527,36 @@ def verifier_adaptation_multi_ecran_v110():
         source.index("# ============================================================\n# PROFILS D'AFFICHAGE")
     ]
     assert "adapter_fenetre_simple_ecran(" in bloc_liaison
+    assert "respecter_profils=True" in bloc_liaison
+    assert 'side="bottom"' in bloc_liaison
+
+    # Les textes Canvas doivent désormais suivre les profils de police.
+    assert "def _appliquer_taille_police_canvas(" in source
+    assert "_appliquer_taille_police_canvas(" in source
+
+    # Le dimensionnement des fenêtres custom doit rester déterministe :
+    # aucune mesure automatique du contenu, un seul facteur de layout et une
+    # limite de sécurité pour la police. Cela évite les géométries différentes
+    # d'une machine à l'autre.
+    bloc_ajustement = source[
+        source.index("def ajuster_fenetre_custom_au_contenu("):
+        source.index("def appliquer_chrome_custom(")
+    ]
+    assert "facteur_layout = facteur_fenetre * float(facteur_ecran)" in bloc_ajustement
+    assert "RATIO_POLICE_MAX_PAR_LAYOUT" in bloc_ajustement
+    assert "calculer_taille_contenu_custom(" not in source
+
+    # La fenêtre de liaison carrière doit remplir sa géométrie réelle, au lieu
+    # de conserver un panneau interne figé en 820x560 dans une grande fenêtre.
+    assert "relwidth=1.0" in bloc_liaison
+    assert "relheight=1.0" in bloc_liaison
+
+    # Les clés de période du forecast doivent être traduites, pas affichées
+    # littéralement à l'écran.
+    assert 't("forecast.period_standard")' in source
+    assert 't("forecast.period_custom")' in source
+    assert 't("forecast.period.standard")' not in source
+    assert 't("forecast.period.custom")' not in source
 
     bloc_splash = source[
         source.index("def afficher_splash("):

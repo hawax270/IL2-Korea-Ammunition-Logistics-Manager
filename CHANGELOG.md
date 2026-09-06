@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.1
 
 ### Adaptive multi-monitor interface
 - all application windows now fit automatically inside the usable area of the monitor they are displayed on;
@@ -10,7 +10,23 @@
 - windows automatically readapt when moved between monitors with different resolutions;
 - splash, career-link, loading and preset popups also use screen-safe positioning.
 
+### Reliable window sizing
+- replaced content-based auto-sizing with one deterministic rule for every window: reference size → selected window profile → monitor-safe scale;
+- windows no longer grow differently depending on the font rendering of the machine;
+- layout geometry and monitor fitting now use one stable scale, preventing oversized windows with a small unscaled content area;
+- font profiles remain visible but are safety-capped relative to the available layout so controls cannot be pushed off-screen;
+- the career selection frame now always fills the real window size and keeps its action buttons anchored at the bottom;
+- multi-monitor movement keeps the final content-aware callback instead of an earlier geometry-only callback;
+- Canvas text follows the COMPACT / STANDARD / LARGE font profile;
+- fixed a forecast period translation key that could appear literally in the interface.
+
 ## v1.1.0
+
+### Responsive window layout
+- forecast and stock windows now use fluid grid columns instead of fixed panel widths;
+- unused horizontal space is distributed between panels automatically;
+- donut charts and long High Command text adapt to the available panel size;
+- small screens keep minimum readable panel widths instead of clipping content.
 - final version
 
 ## v1.0.3
