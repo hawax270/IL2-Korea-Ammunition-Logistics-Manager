@@ -2,6 +2,10 @@
 
 ## v1.1.1
 
+- Fixed High Command request button remaining disabled when Command Points are below the minimum action cost.
+
+- Secondary windows are now built off-screen and revealed only after their layout is ready, preventing visible progressive rendering.
+
 ### High Command usability
 - the High Command request window can now always be opened, even when the player has insufficient Command Points;
 - unavailable actions remain individually restricted by their own cost, allowing players to inspect the available choices and requirements;

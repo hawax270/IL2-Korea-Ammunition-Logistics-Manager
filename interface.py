@@ -21549,27 +21549,17 @@ def ouvrir_consultation_repartition_stock():
             mois
         )
 
+        # La fenêtre High Command reste consultable quel que soit le solde
+        # de points. Seules les actions à l'intérieur contrôlent leurs coûts.
         bouton_urgence.configure(
             state=(
                 "normal"
-                if (
-                    not periode_passee
-                    and (
-                        dev_actif
-                        or points >= COUT_LIVRAISON_PETITE
-                    )
-                )
+                if not periode_passee
                 else "disabled"
             ),
             cursor=(
                 "hand2"
-                if (
-                    not periode_passee
-                    and (
-                        dev_actif
-                        or points >= COUT_LIVRAISON_PETITE
-                    )
-                )
+                if not periode_passee
                 else "arrow"
             )
         )
