@@ -2,6 +2,11 @@
 
 ## v1.1.1
 
+### High Command usability
+- the High Command request window can now always be opened, even when the player has insufficient Command Points;
+- unavailable actions remain individually restricted by their own cost, allowing players to inspect the available choices and requirements;
+- High Command action history now displays the recorded date for directives, boosts and urgent deliveries.
+
 ### Adaptive multi-monitor interface
 - all application windows now fit automatically inside the usable area of the monitor they are displayed on;
 - the taskbar/work area is taken into account on Windows;

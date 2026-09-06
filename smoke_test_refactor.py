@@ -61,7 +61,7 @@ def verifier_chargement_carriere_systematique_v0959():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source
     assert "def afficher_chargement_carriere(" in source
     assert "duree_minimale=5.0" in source
     assert 'name="chargement-carriere"' in source
@@ -120,7 +120,7 @@ def verifier_anglais_par_defaut_v09592():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source_interface
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source_interface
     assert '"langue": "en"' in source_app_data
 
     assert 'resultat[\n                "langue"\n            ] = "en"' in source_interface
@@ -147,7 +147,7 @@ def verifier_career_linked_v09593():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source
     assert 'anchor="center"' in source
     assert 'f"{nom_avion}  •  "' in source
 
@@ -165,7 +165,7 @@ def verifier_donnees_utilisateur_localappdata_v101():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source
     assert 'os.environ.get(' in source
     assert '"LOCALAPPDATA"' in source
     assert '/ "hawax270"' in source
@@ -249,7 +249,7 @@ def verifier_updater_github_v102():
         encoding="utf-8"
     )
 
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source
     assert "import updater" in source
     assert "def demarrer_verification_mise_a_jour(" in source
     assert "def demarrer_telechargement_mise_a_jour(" in source
@@ -1388,7 +1388,7 @@ def verifier_traduction_complete_v0956():
     assert i18n.t_priorite("TRÈS ÉLEVÉE") == "CRITIQUE"
 
     source = Path(__file__).with_name("interface.py").read_text(encoding="utf-8")
-    assert 'VERSION_APPLICATION = "v1.1.0"' in source
+    assert 'VERSION_APPLICATION = "v1.1.1"' in source
     assert 'text="RÉPARTITION PRÉVISIONNELLE DU STOCK"' not in source
     assert 'text="HAUT COMMANDEMENT"' not in source
     assert 'text="RAPPORTS LOGISTIQUES"' not in source
@@ -1496,7 +1496,7 @@ def verifier_absence_auto_verrouillage_sqlite():
 
 def verifier_performance_ui_v0957():
     source = Path(__file__).with_name("interface.py").read_text(encoding="utf-8")
-    assert "VERSION_APPLICATION = \"v1.1.0\"" in source
+    assert "VERSION_APPLICATION = \"v1.1.1\"" in source
     assert "def charger_image_pil_cache(" in source
     assert "def creer_photoimage_cache(" in source
     assert "_CACHE_DONUTS_PIL" in source
@@ -1599,7 +1599,7 @@ def main():
     verifier_traduction_complete_v0956()
     verifier_reception_ravitaillement_robuste()
     verifier_absence_auto_verrouillage_sqlite()
-    print("SMOKE TESTS v1.1.0 : OK")
+    print("SMOKE TESTS v1.1.1 : OK")
 
 
 if __name__ == "__main__":

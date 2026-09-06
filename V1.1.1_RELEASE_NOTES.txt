@@ -1,0 +1,10 @@
+IL2 Korea Ammunition Logistics Manager v1.1.1
+
+Final Public Release fixes:
+- High Command request window remains accessible with insufficient Command Points.
+- Individual actions still enforce their own Command Point costs.
+- High Command action history now includes action dates.
+- Responsive/screen-safe window fixes included.
+
+Expected installer: IL2_Korea_ALM_Setupv1.1.1.exe
+GitHub tag: v1.1.1

@@ -16825,6 +16825,29 @@ def numero_directive_standard(
     return None
 
 
+def formater_date_historique_commandement(valeur, format_source="%Y-%m-%d %H:%M:%S"):
+    """Retourne une date courte et robuste pour l'historique du Haut Commandement."""
+    texte = str(valeur or "").strip()
+    if not texte:
+        return "--/--/----"
+
+    formats = [
+        format_source,
+        "%Y-%m-%d %H:%M:%S",
+        "%Y.%m.%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%Y.%m.%d",
+    ]
+
+    for fmt in dict.fromkeys(formats):
+        try:
+            return datetime.strptime(texte, fmt).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+
+    return texte
+
+
 def lister_historique_commandement_simplifie(
     annee,
     mois,
@@ -16855,7 +16878,8 @@ def lister_historique_commandement_simplifie(
                 id,
                 annee_effet,
                 mois_effet,
-                mode
+                mode,
+                date_creation
             FROM directives_standard_commandement
             WHERE
                 avion = ?
@@ -16926,6 +16950,9 @@ def lister_historique_commandement_simplifie(
                     3
                 ]
             )
+            date_action = formater_date_historique_commandement(
+                ligne[4]
+            )
 
             periode = (
                 f"{t_mois(mois_effet)} "
@@ -16955,7 +16982,7 @@ def lister_historique_commandement_simplifie(
                         30,
                         identifiant
                     ),
-                    "texte": texte
+                    "texte": f"[{date_action}] {texte}"
                 }
             )
 
@@ -16966,7 +16993,8 @@ def lister_historique_commandement_simplifie(
                 annee,
                 mois,
                 munition,
-                boost_pourcent
+                boost_pourcent,
+                date_demande
             FROM boosts_commandement
             WHERE
                 avion = ?
@@ -17020,6 +17048,9 @@ def lister_historique_commandement_simplifie(
                     4
                 ]
             )
+            date_action = formater_date_historique_commandement(
+                ligne[5]
+            )
 
             periode = (
                 f"{t_mois(mois_boost)} "
@@ -17036,7 +17067,8 @@ def lister_historique_commandement_simplifie(
                         identifiant
                     ),
                     "texte": (
-                        t("hc.history.boost", boost=f"{boost:.0f}", munition=t_munition(munition), period=periode)
+                        f"[{date_action}] "
+                        + t("hc.history.boost", boost=f"{boost:.0f}", munition=t_munition(munition), period=periode)
                     )
                 }
             )
@@ -17126,11 +17158,14 @@ def lister_historique_commandement_simplifie(
                         10,
                         identifiant
                     ),
-                    "texte": t(
-                        "hc.history.delivery",
-                        size=t_taille_livraison(taille).lower(),
-                        munition=t_munition(munition),
-                        status=statut_affiche
+                    "texte": (
+                        f"[{date_demande.strftime('%d/%m/%Y')}] "
+                        + t(
+                            "hc.history.delivery",
+                            size=t_taille_livraison(taille).lower(),
+                            munition=t_munition(munition),
+                            status=statut_affiche
+                        )
                     )
                 }
             )
@@ -19474,25 +19509,10 @@ def ouvrir_consultation_repartition_stock():
             )
             return
 
+        # La fenêtre de requête reste consultable même lorsque le joueur
+        # n'a pas assez de points. Chaque action gère ensuite son propre
+        # coût et son état activé/désactivé.
         points = obtenir_points_commandement()
-
-        if (
-            not mode_developpeur_actif()
-            and points < min(
-                COUT_BOOST_15,
-                COUT_BOOST_30,
-                COUT_LIVRAISON_PETITE,
-                COUT_LIVRAISON_GRANDE,
-                COUT_DIRECTIVE_REPARTITION
-            )
-        ):
-            dialogue_message_custom(
-                t("hc.points.low_title"),
-                t("hc.points.low_body"),
-                "info",
-                fenetre_repartition
-            )
-            return
 
         dialogue = tk.Toplevel(
             fenetre_repartition
